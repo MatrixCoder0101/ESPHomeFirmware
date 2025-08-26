@@ -291,7 +291,7 @@ bool startOTAUpdate(WiFiClient* client, int contentLength) {
 
   if (millis() - lastDataTime > timeoutDuration) {
     Serial.println("Timeout during OTA update.");
-    displayMessage("OTA Timeout", "", "");
+    displayMessage("Update Timeout", "", "");
     Update.abort();
     return false;
   }

@@ -176,7 +176,7 @@ void checkForOTAUpdate() {
   http.end();
 
   const size_t capacity = 32 * 1024;
-  DynamicJsonDocument doc(capacity);
+  JsonDocument doc(capacity);
   DeserializationError error = deserializeJson(doc, payload);
   if (error) {
     displayMessage("JSON Parse Error", error.c_str(), "");

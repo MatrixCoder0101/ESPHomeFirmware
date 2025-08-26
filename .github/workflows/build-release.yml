@@ -24,14 +24,14 @@ jobs:
     - name: Install Required Arduino Libraries
       run: |
         arduino-cli lib install "WiFiProvision"
-        arduino-cli lib install "ArduinoJson"
+        arduino-cli lib install "ArduinoJson@6.18.3"
         arduino-cli lib install "AceButton"
         arduino-cli lib install "U8g2"
         arduino-cli lib install "ArduinoHttpClient"
 
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32 --build-properties build.partitions=huge_app . --output-dir build
+        arduino-cli compile --fqbn esp32:esp32:esp32 --build-property build.partitions=huge_app . --output-dir build
 
     - name: Rename firmware
       run: |

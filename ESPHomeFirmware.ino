@@ -154,7 +154,7 @@ void checkForOTAUpdate() {
   return;
 }
 
-  displayMessage("Checking OTA...", "", "");
+  displayMessage("Checking Update...", "", "");
   Serial.println("[OTA] Checking for updates...");
 
   HTTPClient http;

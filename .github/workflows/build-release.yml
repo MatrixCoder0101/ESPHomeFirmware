@@ -29,9 +29,13 @@ jobs:
         arduino-cli lib install "U8g2"
         arduino-cli lib install "ArduinoHttpClient"
 
+    - name: Show available boards and options
+      run: |
+        arduino-cli board details --fqbn esp32:esp32:esp32
+    
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32 --build-property build.partitions=rainmaker . --output-dir build
+        arduino-cli compile --fqbn esp32:esp32:esp32 --board-options PartitionScheme=rainmaker . --output-dir build
 
     - name: Rename firmware
       run: |

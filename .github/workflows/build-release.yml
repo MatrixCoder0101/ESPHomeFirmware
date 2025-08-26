@@ -31,7 +31,7 @@ jobs:
 
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32 . --output-dir build
+        arduino-cli compile --fqbn esp32:esp32:esp32 --build-properties build.partitions=huge_app . --output-dir build
 
     - name: Rename firmware
       run: |

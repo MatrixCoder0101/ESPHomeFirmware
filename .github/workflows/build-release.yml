@@ -37,16 +37,11 @@ jobs:
       run: |
         arduino-cli compile --fqbn esp32:esp32:esp32 --board-options PartitionScheme=rainmaker . --output-dir build
 
-    - name: Rename firmware
-      run: |
-        ls -lh build
-        mv build/*.bin firmware-${{ github.ref_name }}.bin
-
     - name: Create Release and Upload Firmware
       uses: softprops/action-gh-release@v2
       with:
         name: Release ${{ github.ref_name }}
         tag_name: ${{ github.ref_name }}
-        files: firmware-${{ github.ref_name }}.bin
+        files: build/*
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}

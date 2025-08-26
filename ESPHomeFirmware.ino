@@ -203,7 +203,7 @@ void checkForOTAUpdate() {
   JsonArray assets = doc["assets"];
   for (JsonObject asset : assets) {
     String name = asset["name"].as<String>();
-    if (name.endsWith(".bin")) {
+    if (name == "ESPHomeFirmware.ino.bin") {
       binURL = asset["browser_download_url"].as<String>();
       fileName = name;
       break;

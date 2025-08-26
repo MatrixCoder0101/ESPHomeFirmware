@@ -309,7 +309,7 @@ bool startOTAUpdate(WiFiClient* client, int contentLength) {
 
  if (!Update.end()) {
     Serial.printf("Update failed: %s\n", Update.errorString());
-    displayMessage("OTA Failed", Update.errorString(), "");
+    displayMessage("Update Failed", Update.errorString(), "");
     return false;
 }
 

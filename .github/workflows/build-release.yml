@@ -46,4 +46,4 @@ jobs:
         tag_name: ${{ github.ref_name }}
         files: firmware-${{ github.ref_name }}.bin
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}

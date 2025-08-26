@@ -16,7 +16,7 @@ jobs:
     - name: Set up Arduino CLI
       uses: arduino/setup-arduino-cli@v1
       with:
-        version: latest
+        version: 0.34.3
 
     - name: Install ESP32 core v2.0.3
       run: |

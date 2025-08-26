@@ -1,0 +1,49 @@
+name: Build and Release ESP32 Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Arduino CLI
+      uses: arduino/setup-arduino-cli@v1
+      with:
+        version: latest
+
+    - name: Install ESP32 core v2.0.3
+      run: |
+        arduino-cli core update-index
+        arduino-cli core install esp32:esp32@2.0.3
+
+    - name: Install Required Arduino Libraries
+      run: |
+        arduino-cli lib install "WiFiProvision"
+        arduino-cli lib install "ArduinoJson"
+        arduino-cli lib install "AceButton"
+        arduino-cli lib install "U8g2"
+        arduino-cli lib install "ArduinoHttpClient"
+
+    - name: Compile firmware
+      run: |
+        arduino-cli compile --fqbn esp32:esp32:esp32dev . --output-dir build
+
+    - name: Rename firmware
+      run: |
+        mv build/*.bin firmware-${{ github.ref_name }}.bin
+
+    - name: Create Release and Upload Firmware
+      uses: softprops/action-gh-release@v2
+      with:
+        name: Release ${{ github.ref_name }}
+        tag_name: ${{ github.ref_name }}
+        files: firmware-${{ github.ref_name }}.bin
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

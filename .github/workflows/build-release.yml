@@ -31,7 +31,7 @@ jobs:
 
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32 --build-property build.partitions=RainMaker . --output-dir build
+        arduino-cli compile --fqbn esp32:esp32:esp32 --board-options PartitionScheme=no_ota --build-property build.partitions=RainMaker . --output-dir build
 
     - name: Rename firmware
       run: |

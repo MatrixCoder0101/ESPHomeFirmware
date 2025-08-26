@@ -39,6 +39,7 @@ jobs:
 
     - name: Rename firmware
       run: |
+        ls -lh build
         mv build/*.bin firmware-${{ github.ref_name }}.bin
 
     - name: Create Release and Upload Firmware

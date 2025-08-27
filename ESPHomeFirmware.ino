@@ -193,9 +193,10 @@ void checkForOTAUpdate() {
 
   String stored = readStoredVersion();
   if (latestVersion == CURRENT_FIRMWARE_VERSION || latestVersion == stored) {
-    displayMessage("Up to Date", latestVersion.c_str(), "");
+    char line2[30];
+    snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
+    displayMessage("Up to Date", line2, "");
     Serial.printf("[OTA] Already on latest version: %s\n", latestVersion.c_str());
-
     return;
   }
 
@@ -500,7 +501,7 @@ void sysProvEvent(arduino_event_t *sys_event) {
       break;
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       Serial.println("Disconnected from Wi-Fi");
-       displayMessage("WiFi Lost", "", "Retrying...");
+       displayMessage("Disconnected", "", "Retrying...");
        stopWiFiLedTask();
       // Disconnected: 500ms blink
       xTaskCreate([](void *){

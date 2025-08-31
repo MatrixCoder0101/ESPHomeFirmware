@@ -19,7 +19,7 @@ jobs:
     - name: Install ESP32 core v2.0.3
       run: |
         arduino-cli core update-index
-        arduino-cli core install esp32:esp32
+        arduino-cli core install esp32:esp32@2.0.6
 
     - name: Install Required Arduino Libraries
       run: |

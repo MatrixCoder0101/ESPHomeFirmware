@@ -73,15 +73,6 @@ static Switch my_switch2(deviceName_2, &RelayPin2);
 static Switch my_switch3(deviceName_3, &RelayPin3);
 static Switch my_switch4(deviceName_4, &RelayPin4);
 
-/*
-void writeEEPROM(int addr, bool state) {
-  if (ENABLE_EEPROM) {
-    EEPROM.write(addr, state);
-    EEPROM.commit();
-    Serial.printf("EEPROM saved: addr %d = %d\n", addr, state);
-  }
-}
-*/
 void writeEEPROM(int addr, bool state) {
   if (ENABLE_EEPROM && EEPROM.read(addr) != state) {
     EEPROM.write(addr, state);
@@ -241,7 +232,6 @@ void checkForOTAUpdate() {
 
   if (startOTAUpdate(stream, contentLength, latestVersion)) {
     displayMessage("Update OK", "Rebooting...", "");
-    //storeFirmwareVersion(latestVersion.c_str());
     delay(2000);
     ESP.restart();
   } else {

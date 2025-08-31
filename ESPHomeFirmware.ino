@@ -239,7 +239,7 @@ void checkForOTAUpdate() {
   int contentLength = http.getSize();
   WiFiClient *stream = http.getStreamPtr();
 
-  if (startOTAUpdate(stream, contentLength)) {
+  if (startOTAUpdate(stream, contentLength, latestVersion)) {
     displayMessage("Update OK", "Rebooting...", "");
     //storeFirmwareVersion(latestVersion.c_str());
     delay(2000);

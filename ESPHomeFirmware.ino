@@ -7,7 +7,8 @@
 #include <Wire.h>
 #include <HTTPClient.h>
 #include <Update.h>
-#include <ArduinoJson.h>  // Add this line at the top
+#include <ArduinoJson.h>
+#include <DHT.h>
 
 // SSD1306 128×64 via I2C
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE);
@@ -307,7 +308,7 @@ bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestV
   if (Update.isFinished()) {
     Serial.println("OTA update successful.");
     displayMessage("Device Ready", "", "");
-    storeFirmwareVersion(latestVersion.c_str());   // ✅ ab sahi scope me
+    storeFirmwareVersion(latestVersion.c_str());
     return true;
   }
 }
@@ -418,7 +419,6 @@ void loop() {
   button4.check();
   unsigned long now = millis();
 
-// Pehla OTA check boot ke thodi der baad hona chahiye
 if (!initialCheckDone && millis() > 10000) {
   checkForOTAUpdate();
   lastOTACheckTime = now;

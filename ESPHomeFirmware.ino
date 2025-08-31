@@ -253,8 +253,8 @@ void checkForOTAUpdate() {
 
 bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestVersion) {
   Serial.println("Initializing update...");
-  displayMessage("Initializing update", "",
-  
+  displayMessage("Initializing update", "", "");  // <-- properly closed
+
  if (!Update.begin(contentLength)) {  
     Serial.println("Not enough space for OTA");
     displayMessage("Update Failed", "Not enough space", "");  // OLED display

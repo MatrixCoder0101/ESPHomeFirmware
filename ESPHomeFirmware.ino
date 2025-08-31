@@ -140,106 +140,122 @@ void storeFirmwareVersion(const char* version) {
   Serial.printf("Firmware version stored: %s\n", version);
 }
 
-void checkForOTAUpdate() {
-  if (WiFi.status() != WL_CONNECTED) {
-  displayMessage("No WiFi", "", "Can't update");
-  return;
-}
 
-  displayMessage("Checking Update...", "", "");
-  Serial.println("[OTA] Checking for updates...");
-
+String getLatestBinUrl(const char* apiUrl, String& latestVersion) {
   HTTPClient http;
-  String latestVersion, binURL;
-
-  String apiURL = "https://api.github.com/repos/" GITHUB_USER "/" GITHUB_REPO "/releases/latest";
-  http.begin(apiURL);
-  http.addHeader("User-Agent", "ESP32-OTA-Updater");
-
+  http.begin(apiUrl);
   int httpCode = http.GET();
-  if (httpCode != 200) {
-    displayMessage("GitHub API Error", (String("Code: ") + httpCode).c_str(), "");
-    Serial.printf("[OTA] GitHub API failed, HTTP code: %d\n", httpCode);
+  if (httpCode != HTTP_CODE_OK) {
+    Serial.printf("[OTA] HTTP error: %d\n", httpCode);
     http.end();
-    return;
+    return "";
   }
 
-  String payload = http.getString();
+  // Filter: Only required fields
+  StaticJsonDocument<256> filter;
+  filter["tag_name"] = true;
+  filter["assets"][0]["name"] = true;
+  filter["assets"][0]["browser_download_url"] = true;
+
+  DynamicJsonDocument doc(4096);  // enough for filtered fields
+  DeserializationError err = deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
   http.end();
 
-  const size_t capacity = 32 * 1024;
-  DynamicJsonDocument doc(capacity);
-  DeserializationError error = deserializeJson(doc, payload);
-  if (error) {
-    displayMessage("JSON Parse Error", error.c_str(), "");
-    return;
-  }
-  if (!doc.containsKey("tag_name")) {
-    displayMessage("Invalid JSON", "Missing tag_name", "");
-    return;
+  if (err) {
+    Serial.printf("[OTA] JSON parse error: %s\n", err.c_str());
+    return "";
   }
 
   latestVersion = doc["tag_name"].as<String>();
-  displayMessage("Latest Version:", latestVersion.c_str(), "");
-  Serial.printf("[OTA] Latest firmware version: %s\n", latestVersion.c_str());
+  Serial.printf("[OTA] Latest Version: %s\n", latestVersion.c_str());
 
-  String stored = readStoredVersion();
-  if (latestVersion == CURRENT_FIRMWARE_VERSION || latestVersion == stored) {
-    char line2[30];
-    snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
-    displayMessage("Up to Date", line2, "");
-    Serial.printf("[OTA] Already on latest version: %s\n", latestVersion.c_str());
-    return;
-  }
+  String binUrl = "";
 
-  String fileName = "";
-  JsonArray assets = doc["assets"];
-  for (JsonObject asset : assets) {
-    String name = asset["name"].as<String>();
-    if (name == "ESPHomeFirmware.ino.bin") {
-      binURL = asset["browser_download_url"].as<String>();
-      fileName = name;
-      break;
+  // Scan all assets for the correct .bin file
+  for (JsonObject asset : doc["assets"].as<JsonArray>()) {
+    const char* name = asset["name"];
+    const char* url  = asset["browser_download_url"];
+    if (name && strstr(name, ".bin")) {
+      // Make sure we only pick main firmware .bin, not bootloader/partitions
+      if (String(name).endsWith(".ino.bin")) {
+        binUrl = String(url);
+        break;
+      }
     }
   }
 
-  if (binURL == "") {
-    displayMessage("No .bin found", "", "");
-    return;
-  }
-
-  char line2[30];
-  snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
-  char line3[30];
-  snprintf(line3, sizeof(line3), "File: %s", fileName.c_str());
-
-  displayMessage("Downloading", line2, line3);
-  Serial.printf("[OTA] New version available: %s\n", latestVersion.c_str());
-  Serial.printf("[OTA] Binary file: %s\n", fileName.c_str());
-
-
-  // Start OTA
-  http.begin(binURL);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  int code2 = http.GET();
-  if (code2 != HTTP_CODE_OK) {
-    displayMessage("Download Failed", (String("Code: ") + code2).c_str(), "");
-    http.end();
-    return;
-  }
-
-  int contentLength = http.getSize();
-  WiFiClient *stream = http.getStreamPtr();
-
-  if (startOTAUpdate(stream, contentLength, latestVersion)) {
-    displayMessage("Update OK", "Rebooting...", "");
-    delay(2000);
-    ESP.restart();
+  if (binUrl == "") {
+    Serial.println("[OTA] No valid .bin found in assets!");
   } else {
-    displayMessage("OTA Failed", "", "");
+    Serial.printf("[OTA] Firmware URL: %s\n", binUrl.c_str());
   }
 
-  http.end();
+  return binUrl;
+}
+
+void checkForOTAUpdate() {
+    if (WiFi.status() != WL_CONNECTED) {
+        displayMessage("No WiFi", "", "Can't update");
+        return;
+    }
+
+    displayMessage("Checking Update...", "", "");
+    Serial.println("[OTA] Checking for updates...");
+
+    String latestVersion;
+    String apiURL = "https://api.github.com/repos/" GITHUB_USER "/" GITHUB_REPO "/releases/latest";
+    String binURL = getLatestBinUrl(apiURL.c_str(), latestVersion);
+
+    if (binURL == "") {
+        displayMessage("No .bin found", "", "");
+        return;
+    }
+
+    // EEPROM stored version check
+    String stored = readStoredVersion();
+    if (latestVersion == CURRENT_FIRMWARE_VERSION || latestVersion == stored) {
+        char line2[30];
+        snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
+        displayMessage("Up to Date", line2, "");
+        Serial.printf("[OTA] Already on latest version: %s\n", latestVersion.c_str());
+        return;
+    }
+
+    // Extract filename from binURL
+    String fileName = binURL.substring(binURL.lastIndexOf('/') + 1);
+
+    // OLED display for download
+    char line2[30];
+    snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
+    char line3[30];
+    snprintf(line3, sizeof(line3), "File: %s", fileName.c_str());
+    displayMessage("Downloading", line2, line3);
+    Serial.printf("[OTA] New version available: %s\n", latestVersion.c_str());
+    Serial.printf("[OTA] Binary file: %s\n", fileName.c_str());
+
+    // Start OTA
+    HTTPClient http;
+    http.begin(binURL);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    int code2 = http.GET();
+    if (code2 != HTTP_CODE_OK) {
+        displayMessage("Download Failed", (String("Code: ") + code2).c_str(), "");
+        http.end();
+        return;
+    }
+
+    int contentLength = http.getSize();
+    WiFiClient *stream = http.getStreamPtr();
+
+    if (startOTAUpdate(stream, contentLength, latestVersion)) {
+        displayMessage("Update OK", "Rebooting...", "");
+        delay(2000);
+        ESP.restart();
+    } else {
+        displayMessage("OTA Failed", "", "");
+    }
+
+    http.end();
 }
 
 bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestVersion) {

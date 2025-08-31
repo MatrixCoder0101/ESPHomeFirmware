@@ -239,7 +239,7 @@ void checkForOTAUpdate() {
   int contentLength = http.getSize();
   WiFiClient *stream = http.getStreamPtr();
 
-  if (startOTAUpdate(stream, contentLength, latestVersion)) {
+  if (startOTAUpdate(stream, contentLength)) {
     displayMessage("Update OK", "Rebooting...", "");
     //storeFirmwareVersion(latestVersion.c_str());
     delay(2000);
@@ -253,13 +253,11 @@ void checkForOTAUpdate() {
 
 bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestVersion) {
   Serial.println("Initializing update...");
-  displayMessage("Initializing update", "", "");  // <-- properly closed
 
- if (!Update.begin(contentLength)) {  
-    Serial.println("Not enough space for OTA");
-    displayMessage("Update Failed", "Not enough space", "");  // OLED display
+  if (!Update.begin(contentLength)) {
+    Serial.printf("Update begin failed: %s\n", Update.errorString());
     return false;
- }
+  }
 
   size_t written = 0;
   int progress = 0;
@@ -316,20 +314,12 @@ bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestV
     return false;
 }
 
-if (Update.isFinished()) {
+  if (Update.isFinished()) {
     Serial.println("OTA update successful.");
     displayMessage("Device Ready", "", "");
-
-    // ✅ Yahi par EEPROM me firmware version save karo
-    storeFirmwareVersion(latestVersion.c_str());
-
-    Serial.println("[SYSTEM] Setup complete. Device ready.");
+    storeFirmwareVersion(latestVersion.c_str());   // ✅ ab sahi scope me
     return true;
- } else {
-    Serial.println("Update not finished properly!");
-    displayMessage("OTA Failed", "Not finished", "");
-    return false;
- }
+  }
 }
 
 void stopWiFiLedTask() {
@@ -345,7 +335,6 @@ void setup() {
   Serial.begin(115200);
   u8g2.begin();
   displayMessage("Booting...", "", "");
-  //esp_ota_mark_app_valid_cancel_rollback();
   Serial.println("[SYSTEM] Booting...");
   displayMessage("Connecting WiFi...", "", "");
   Serial.println("[WIFI] Connecting...");
@@ -400,7 +389,7 @@ void setup() {
   my_node.addDevice(my_switch3);
   my_node.addDevice(my_switch4);
 
-  //RMaker.enableOTA(OTA_USING_PARAMS);
+  RMaker.enableOTA(OTA_USING_PARAMS);
   RMaker.enableTZService();
   RMaker.enableSchedule();
 
@@ -416,9 +405,6 @@ void setup() {
 
   Serial.println("Setup completed with EEPROM and mode flags.");
   Serial.printf("[DEBUG] Provisioned: %d, WiFi Status: %d\n", WiFi.status());
-  if (WiFi.status() == WL_CONNECTED) {
-   //checkForOTAUpdate();
-  }
 }
 
 void loop() {

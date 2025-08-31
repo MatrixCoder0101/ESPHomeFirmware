@@ -253,18 +253,13 @@ void checkForOTAUpdate() {
 
 bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestVersion) {
   Serial.println("Initializing update...");
+  displayMessage("Initializing update", "",
   
-  const esp_partition_t* update_partition = esp_ota_get_next_update_partition(NULL);
-  if (!Update.begin(contentLength, U_FLASH, update_partition->address)) {
-      Serial.printf("OTA begin failed: %s\n", Update.errorString());
-      return false;
-  }
-/*
-  if (!Update.begin(contentLength)) {
-    Serial.printf("Update begin failed: %s\n", Update.errorString());
+ if (!Update.begin(contentLength)) {  
+    Serial.println("Not enough space for OTA");
+    displayMessage("Update Failed", "Not enough space", "");  // OLED display
     return false;
-  }
-*/
+ }
 
   size_t written = 0;
   int progress = 0;
@@ -350,7 +345,7 @@ void setup() {
   Serial.begin(115200);
   u8g2.begin();
   displayMessage("Booting...", "", "");
-  esp_ota_mark_app_valid_cancel_rollback();
+  //esp_ota_mark_app_valid_cancel_rollback();
   Serial.println("[SYSTEM] Booting...");
   displayMessage("Connecting WiFi...", "", "");
   Serial.println("[WIFI] Connecting...");

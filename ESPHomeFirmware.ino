@@ -37,7 +37,7 @@ int ledStage = 0;
 TaskHandle_t wifiLedTaskHandle = NULL;
 
 char deviceName_1[] = "Light";
-char deviceName_2[] = "Light2";
+char deviceName_2[] = "Light 2";
 char deviceName_3[] = "Fan";
 char deviceName_4[] = "TV";
 
@@ -264,7 +264,7 @@ void checkForOTAUpdate() {
     WiFiClient *stream = http.getStreamPtr();
 
     if (startOTAUpdate(stream, contentLength, latestVersion)) {
-        displayMessage("Update OK", "Rebooting...", "");
+        displayMessage("Update Complete", "Rebooting...", "");
         delay(2000);
         ESP.restart();
     } else {

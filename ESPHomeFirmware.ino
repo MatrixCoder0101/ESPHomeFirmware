@@ -248,15 +248,17 @@ void checkForOTAUpdate() {
 
     int contentLength = http.getSize();
 
-    // Human-readable size (B, kB, MB…)
+    // Show size in proper unit (B, kB, MB…)
     String sizeText = humanReadableSize(contentLength);
 
+    char line2[30];
+    snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
     char line3[30];
     snprintf(line3, sizeof(line3), "Size: %s", sizeText.c_str());
 
     displayMessage("Downloading", line2, line3);
 
-    Serial.printf("[OTA] New version available: %s\n", latestVersion.c_str());
+    Serial.printf("[OTA] New version: %s\n", latestVersion.c_str());
     Serial.printf("[OTA] Firmware size: %s\n", sizeText.c_str());
 
     WiFiClient *stream = http.getStreamPtr();

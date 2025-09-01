@@ -193,6 +193,20 @@ String getLatestBinUrl(const char* apiUrl, String& latestVersion) {
   return binUrl;
 }
 
+String humanReadableSize(size_t bytes) {
+  char buf[20];
+  if (bytes < 1024) {
+    sprintf(buf, "%u B", (unsigned int)bytes);
+  } else if (bytes < 1024 * 1024) {
+    sprintf(buf, "%.2f kB", bytes / 1024.0);
+  } else if (bytes < 1024 * 1024 * 1024) {
+    sprintf(buf, "%.2f MB", bytes / 1024.0 / 1024.0);
+  } else {
+    sprintf(buf, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0);
+  }
+  return String(buf);
+}
+
 void checkForOTAUpdate() {
     if (WiFi.status() != WL_CONNECTED) {
         displayMessage("No WiFi", "", "Can't update");
@@ -221,18 +235,6 @@ void checkForOTAUpdate() {
         return;
     }
 
-    // Extract filename from binURL
-    String fileName = binURL.substring(binURL.lastIndexOf('/') + 1);
-
-    // OLED display for download
-    char line2[30];
-    snprintf(line2, sizeof(line2), "Version: %s", latestVersion.c_str());
-    char line3[30];
-    snprintf(line3, sizeof(line3), "File: %s", fileName.c_str());
-    displayMessage("Downloading", line2, line3);
-    Serial.printf("[OTA] New version available: %s\n", latestVersion.c_str());
-    Serial.printf("[OTA] Binary file: %s\n", fileName.c_str());
-
     // Start OTA
     HTTPClient http;
     http.begin(binURL);
@@ -245,6 +247,18 @@ void checkForOTAUpdate() {
     }
 
     int contentLength = http.getSize();
+
+    // Human-readable size (B, kB, MB…)
+    String sizeText = humanReadableSize(contentLength);
+
+    char line3[30];
+    snprintf(line3, sizeof(line3), "Size: %s", sizeText.c_str());
+
+    displayMessage("Downloading", line2, line3);
+
+    Serial.printf("[OTA] New version available: %s\n", latestVersion.c_str());
+    Serial.printf("[OTA] Firmware size: %s\n", sizeText.c_str());
+
     WiFiClient *stream = http.getStreamPtr();
 
     if (startOTAUpdate(stream, contentLength, latestVersion)) {
@@ -281,18 +295,18 @@ bool startOTAUpdate(WiFiClient* client, int contentLength, const String &latestV
       written += len;
 
       progress = (written * 100) / contentLength;
-      if (progress != lastProgress) {
-        Serial.printf("Writing Progress: %d%%\n", progress);
-        
-        // -------- OLED progress display --------
-        char line2[30];
-        snprintf(line2, sizeof(line2), "Progress: %d%%", progress);
-        displayMessage("Updating...", line2, "");
-        // ---------------------------------------
-
-        lastProgress = progress;
-      }
-
+       if (progress != lastProgress) {
+         String writtenSize = humanReadableSize(written);
+         String totalSize   = humanReadableSize(contentLength);
+         Serial.printf("Progress: %d%% (%s / %s)\n",
+         progress, writtenSize.c_str(), totalSize.c_str());
+         char line2[30];
+         snprintf(line2, sizeof(line2), "Progress: %d%%", progress);
+         char line3[30];
+         snprintf(line3, sizeof(line3), "%s/%s", writtenSize.c_str(), totalSize.c_str());
+         displayMessage("Updating...", line2, line3);
+         lastProgress = progress;
+       }
       lastDataTime = millis();  // reset timeout
     }
   }

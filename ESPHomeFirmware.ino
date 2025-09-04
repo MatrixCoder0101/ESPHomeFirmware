@@ -40,7 +40,7 @@ int ledState = LOW;
 int ledStage = 0;
 TaskHandle_t wifiLedTaskHandle = NULL;
 unsigned long lastSensorRead = 0;
-const unsigned long sensorInterval = 30000; // 30 seconds
+const unsigned long sensorInterval = 5000; // 30 seconds
 
 char deviceName_1[] = "Light";
 char deviceName_2[] = "Light 2";

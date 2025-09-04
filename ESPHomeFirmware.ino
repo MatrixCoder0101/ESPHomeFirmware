@@ -23,6 +23,10 @@ using namespace ace_button;
 #define GITHUB_USER "MatrixCoder0101"
 #define GITHUB_REPO "ESPHomeFirmware"
 #define EEPROM_VERSION_ADDR 8  // EEPROM addresses 0‑3 used by relays; 8‑17 for version
+#define DHTPIN 26          // Choose a free GPIO pin (e.g., 26)
+#define DHTTYPE DHT11      // Or DHT22
+DHT dht(DHTPIN, DHTTYPE);  // Create DHT object
+
 
 // ======== DEVICE SETTINGS =============
 const char *service_name = "PROV_12345";
@@ -35,6 +39,8 @@ unsigned long ledPreviousMillis = 0;
 int ledState = LOW;
 int ledStage = 0;
 TaskHandle_t wifiLedTaskHandle = NULL;
+unsigned long lastSensorRead = 0;
+const unsigned long sensorInterval = 30000; // 30 seconds
 
 char deviceName_1[] = "Light";
 char deviceName_2[] = "Light 2";
@@ -69,6 +75,8 @@ AceButton button3(&config3);
 ButtonConfig config4;
 AceButton button4(&config4);
 
+static TemperatureSensor tempSensor("Temperature");
+static TemperatureSensor humiditySensor("Humidity");
 static Switch my_switch1(deviceName_1, &RelayPin1);
 static Switch my_switch2(deviceName_2, &RelayPin2);
 static Switch my_switch3(deviceName_3, &RelayPin3);
@@ -357,6 +365,7 @@ void setup() {
   digitalWrite(wifiLed, LOW);
   Serial.begin(115200);
   u8g2.begin();
+  dht.begin();
   displayMessage("Booting...", "", "");
   Serial.println("[SYSTEM] Booting...");
   displayMessage("Connecting WiFi...", "", "");
@@ -407,6 +416,8 @@ void setup() {
   my_switch3.addCb(write_callback);
   my_switch4.addCb(write_callback);
 
+  my_node.addDevice(tempSensor);
+  my_node.addDevice(humiditySensor);
   my_node.addDevice(my_switch1);
   my_node.addDevice(my_switch2);
   my_node.addDevice(my_switch3);
@@ -443,6 +454,26 @@ void loop() {
       Serial.println("WiFi reset triggered.");
       RMakerWiFiReset(2);
     }
+  }
+  
+  if (millis() - lastSensorRead > sensorInterval) {
+    float h = dht.readHumidity();
+    float t = dht.readTemperature();
+  
+    if (!isnan(h) && !isnan(t)) {
+      Serial.printf("Temp: %.2f °C, Humidity: %.2f %%\n", t, h);
+      
+      tempSensor.updateAndReportParam("Temperature", t);
+      humiditySensor.updateAndReportParam("Humidity", h);
+      
+      // OLED display par bhi dikhana (agar chaho)
+      //displayMessage("Temp: " + String(t) + "C", "Humidity: " + String(h) + "%", "");
+    } else {
+      Serial.println("Failed to read from DHT sensor!");
+      displayMessage("Sensor Error", "", "");
+    }
+
+    lastSensorRead = millis();
   }
 
   button1.check();

@@ -464,7 +464,7 @@ void loop() {
       Serial.printf("Temp: %.2f °C, Humidity: %.2f %%\n", t, h);
       
       tempSensor.updateAndReportParam("Temperature", t);
-      humiditySensor.updateAndReportParam("Humidity", h);
+      humiditySensor.updateAndReportParam("Temperature", h);
       
       // OLED display par bhi dikhana (agar chaho)
       //displayMessage("Temp: " + String(t) + "C", "Humidity: " + String(h) + "%", "");

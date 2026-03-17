@@ -165,6 +165,8 @@ int termLineCount  = 0;
 int termScrollTop  = 0;              // first visible line index
 bool dashboardLaunched = false;      // terminal → dashboard flag
 bool provisioningActive = false;     // are we in BLE prov mode?
+int  wifiRetryCount     = 0;         // retry counter for display
+bool wifiAnimating      = true;      // animate dots on last line
 
 // ═══════════════════════════════════════════════════════════
 //  TERMINAL SYSTEM — Boot + Provisioning + WiFi Status
@@ -1186,8 +1188,25 @@ void sysProvEvent(arduino_event_t *sys_event) {
         // On dashboard — just update top bar, keep working
         refreshTopBar();
       } else {
-        // Still in terminal — show retry
-        termFail("WiFi disconnected — retrying...");
+        // Still in terminal — update retry count, dont spam new lines
+        wifiRetryCount++;
+        char rmsg[48];
+        snprintf(rmsg, sizeof(rmsg), "WiFi disconnected  retry #%d — reconnecting...", wifiRetryCount);
+        // If last line was connecting, update it; else add new fail line
+        if (termLineCount > 0 &&
+            strstr(termLines[termLineCount-1].msg, "Connecting") != NULL) {
+          strncpy(termLines[termLineCount-1].msg, rmsg, 63);
+          termLines[termLineCount-1].badgeColor = C_RED;
+          termLines[termLineCount-1].msgColor   = C_RED;
+          strncpy(termLines[termLineCount-1].badge, "[WIFI]", 7);
+          termRedrawLines();
+        } else {
+          termFail(rmsg);
+        }
+        // Reset to connecting dots animation
+        wifiAnimating = true;
+        // Add fresh connecting line after short delay
+        delay(500);
         termWifi("Connecting to WiFi ...");
       }
       break;
@@ -1292,23 +1311,54 @@ void setup() {
 //  LOOP
 // ═══════════════════════════════════════════════════════════
 void loop() {
-  // ── Animate WiFi dots on terminal (before dashboard) ──
-  if (!dashboardLaunched) {
-    termAnimateWifi();
-    // Buttons still work during provisioning
-    button1.check(); button2.check();
-    button3.check(); button4.check();
-    return;
-  }
-
   // ── Factory / WiFi reset button ───────────────────────
+  // IMPORTANT: Yeh HAMESHA run hona chahiye — dashboard ya terminal dono mein
+  // GPIO 0 = BOOT button (built-in on most ESP32 boards)
+  // Hold 3  sec = WiFi reset (credentials clear, re-provision)
+  // Hold 10 sec = Factory reset (sab kuch clear)
   if (digitalRead(gpio_reset) == LOW) {
     delay(100);
     unsigned long t = millis();
-    while (digitalRead(gpio_reset) == LOW) delay(50);
+    // Show countdown on terminal if not on dashboard
+    int lastSec = -1;
+    while (digitalRead(gpio_reset) == LOW) {
+      delay(50);
+      int heldSec = (millis() - t) / 1000;
+      if (!dashboardLaunched && heldSec != lastSec) {
+        lastSec = heldSec;
+        char rmsg[48];
+        if (heldSec < 3)
+          snprintf(rmsg, sizeof(rmsg), "Reset button held: %ds (3s=WiFi, 10s=Factory)", heldSec);
+        else if (heldSec < 10)
+          snprintf(rmsg, sizeof(rmsg), "Release now for WiFi Reset (%ds/10s)...", heldSec);
+        else
+          snprintf(rmsg, sizeof(rmsg), "FACTORY RESET in progress...");
+        // Update footer with reset info
+        tft.fillRect(0, 210, 320, 30, 0x3800);
+        tft.setTextColor(C_YELLOW, 0x3800);
+        tft.setTextSize(1);
+        tft.setCursor(6, 215);
+        tft.print(rmsg);
+      }
+    }
     unsigned long dur = millis() - t;
-    if (dur > 10000)     RMakerFactoryReset(2);
-    else if (dur > 3000) RMakerWiFiReset(2);
+    if (dur > 10000) {
+      if (!dashboardLaunched) termFail("FACTORY RESET triggered — clearing all data...");
+      Serial.println("[RESET] Factory reset triggered");
+      RMakerFactoryReset(2);
+    } else if (dur > 3000) {
+      if (!dashboardLaunched) termLog("[RST ]", C_ORANGE, "WiFi Reset — credentials cleared, re-provisioning...", C_ORANGE);
+      Serial.println("[RESET] WiFi reset triggered");
+      RMakerWiFiReset(2);
+    }
+  }
+
+  // ── Terminal mode — animate dots, then return ──────────
+  if (!dashboardLaunched) {
+    if (wifiAnimating) termAnimateWifi();
+    button1.check(); button2.check();
+    button3.check(); button4.check();
+    return;
   }
 
   // ── DHT sensor read ───────────────────────────────────

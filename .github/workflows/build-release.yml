@@ -71,11 +71,11 @@ jobs:
         echo "User_Setup.h replaced successfully."
 
         echo "--- Driver ---"
-        grep "ILI9341" "$SETUP_FILE" | grep -v "//"
+        grep "ILI9341" "$SETUP_FILE" | grep -v "//" || true
         echo "--- Pins ---"
-        grep "TFT_MOSI\|TFT_SCLK\|TFT_CS\|TFT_DC\|TFT_RST" "$SETUP_FILE" | grep -v "//"
+        grep "TFT_MOSI\|TFT_SCLK\|TFT_CS\|TFT_DC\|TFT_RST" "$SETUP_FILE" | grep -v "//" || true
         echo "--- SPI Speed ---"
-        grep "SPI_FREQUENCY" "$SETUP_FILE" | grep -v "//"
+        grep "SPI_FREQUENCY" "$SETUP_FILE" | grep -v "//" || true
 
     # ──────────────────────────────────────────────
     # 6. Show board details (debug)

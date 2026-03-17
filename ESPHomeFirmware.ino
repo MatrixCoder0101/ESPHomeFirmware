@@ -146,151 +146,356 @@ volatile int otaProgress     = 0;
 volatile bool otaInProgress  = false;
 String otaStatusMsg          = "";
 
-// Boot log lines
-#define MAX_LOG_LINES 10
-String bootLog[MAX_LOG_LINES];
-int    bootLogCount = 0;
-int    bootLogScrollY = 0;  // pixel scroll offset
+// ── Terminal system ───────────────────────────────────────
+#define TERM_LINE_H     13           // pixels per line
+#define TERM_TOP_Y      19           // y after header bar
+#define TERM_BOT_PROV   210          // y where prov box starts
+#define TERM_MAX_LINES  14           // max visible lines
+#define TERM_BADGE_W    48           // badge column width
+
+struct TermLine {
+  char badge[8];
+  char msg[64];
+  uint16_t badgeColor;
+  uint16_t msgColor;
+};
+
+TermLine termLines[40];              // total stored lines
+int termLineCount  = 0;
+int termScrollTop  = 0;              // first visible line index
+bool dashboardLaunched = false;      // terminal → dashboard flag
+bool provisioningActive = false;     // are we in BLE prov mode?
 
 // ═══════════════════════════════════════════════════════════
-//  ██████╗  ██████╗  ██████╗ ████████╗
-//  ██╔══██╗██╔═══██╗██╔═══██╗╚══██╔══╝
-//  ██████╔╝██║   ██║██║   ██║   ██║   
-//  ██╔══██╗██║   ██║██║   ██║   ██║   
-//  ██████╔╝╚██████╔╝╚██████╔╝   ██║   
-//  ╚═════╝  ╚═════╝  ╚═════╝    ╚═╝   
-//  BOOT SEQUENCE FUNCTIONS
+//  TERMINAL SYSTEM — Boot + Provisioning + WiFi Status
+//  Sab kuch yahan dikhta hai jab tak dashboard launch na ho
 // ═══════════════════════════════════════════════════════════
 
-// Draw the Linux-style terminal boot screen background
-void drawBootScreen() {
-  tft.fillScreen(TFT_BLACK);
-  // Top title bar
+// ── Draw terminal header bar ──────────────────────────────
+void termDrawHeader() {
   tft.fillRect(0, 0, 320, 18, 0x0C4A);
   tft.setTextColor(C_ACCENT, 0x0C4A);
   tft.setTextSize(1);
-  tft.setCursor(8, 5);
-  tft.print("ESPHome v2.0 — Booting System");
-  // Bottom hint
-  tft.setTextColor(C_DARKGRAY, TFT_BLACK);
-  tft.setCursor(8, 228);
-  tft.print("ESP32 | TFT 320x240 | RainMaker");
+  tft.setCursor(6, 5);
+  tft.print("ESPHome");
+  tft.setTextColor(C_WHITE, 0x0C4A);
+  tft.print(" v2.0  |  Smart Dashboard");
+  // Right side: FW version
+  tft.setTextColor(C_DARKGRAY, 0x0C4A);
+  tft.setCursor(246, 5);
+  tft.print(CURRENT_FIRMWARE_VERSION);
+  // Separator line
+  tft.drawFastHLine(0, 18, 320, C_ACCENT);
 }
 
-// Add a line to boot log and scroll it on screen
-void bootLogAdd(const char* status, const char* msg, uint16_t statusColor) {
-  // Scroll up by one line if full
-  const int LINE_H = 13;
-  const int LOG_Y  = 22;
-  const int LOG_MAX_LINES = 14;
+// ── Draw one terminal line at given y ─────────────────────
+void termDrawLine(int idx, int y) {
+  if (idx < 0 || idx >= termLineCount) return;
+  TermLine &l = termLines[idx];
 
-  if (bootLogCount >= LOG_MAX_LINES) {
-    // Scroll existing content up
-    tft.setCursor(0, LOG_Y);
-    // Re-draw all but first stored log (simple approach: re-draw from array)
-    tft.fillRect(0, LOG_Y, 320, LOG_MAX_LINES * LINE_H, TFT_BLACK);
-    for (int i = 1; i < bootLogCount; i++) {
-      // Re-print stored lines... for simplicity we just draw new line at bottom
-    }
-    bootLogCount = LOG_MAX_LINES - 1;
-  }
+  // Clear line
+  tft.fillRect(0, y, 320, TERM_LINE_H, TFT_BLACK);
 
-  int y = LOG_Y + bootLogCount * LINE_H;
-
-  // Status badge [ OK ] / [....] / [FAIL] / [>>>>]
-  tft.setTextColor(statusColor, TFT_BLACK);
+  // Badge
+  tft.setTextColor(l.badgeColor, TFT_BLACK);
   tft.setTextSize(1);
-  tft.setCursor(4, y);
-  tft.print(status);
+  tft.setCursor(3, y + 2);
+  tft.print(l.badge);
 
   // Message
-  tft.setTextColor(C_WHITE, TFT_BLACK);
-  tft.setCursor(52, y);
-  tft.print(msg);
-
-  bootLogCount++;
-  delay(80); // slight pause for "terminal feel"
+  tft.setTextColor(l.msgColor, TFT_BLACK);
+  tft.setCursor(TERM_BADGE_W + 2, y + 2);
+  tft.print(l.msg);
 }
 
-// Animated progress bar for final boot
-void drawBootProgress(int percent, const char* label) {
-  int barX = 10, barY = 205, barW = 300, barH = 14;
+// ── Redraw all visible lines ──────────────────────────────
+void termRedrawLines() {
+  int visibleLines = (TERM_BOT_PROV - TERM_TOP_Y) / TERM_LINE_H;
+  for (int i = 0; i < visibleLines; i++) {
+    int lineIdx = termScrollTop + i;
+    int y = TERM_TOP_Y + i * TERM_LINE_H;
+    if (lineIdx < termLineCount)
+      termDrawLine(lineIdx, y);
+    else
+      tft.fillRect(0, y, 320, TERM_LINE_H, TFT_BLACK);
+  }
+}
 
-  // Clear area
-  tft.fillRect(barX, barY - 14, barW, 12, TFT_BLACK);
+// ── Add a log line (auto scrolls) ────────────────────────
+void termLog(const char* badge, uint16_t badgeColor,
+             const char* msg,   uint16_t msgColor) {
+  if (termLineCount < 40) {
+    strncpy(termLines[termLineCount].badge, badge, 7);
+    strncpy(termLines[termLineCount].msg,   msg,   63);
+    termLines[termLineCount].badgeColor = badgeColor;
+    termLines[termLineCount].msgColor   = msgColor;
+    termLineCount++;
+  }
+
+  // Auto scroll so newest line is always visible
+  int visibleLines = (TERM_BOT_PROV - TERM_TOP_Y) / TERM_LINE_H;
+  if (termLineCount > visibleLines)
+    termScrollTop = termLineCount - visibleLines;
+
+  termRedrawLines();
+  delay(60);  // terminal feel
+}
+
+// Convenience wrappers ────────────────────────────────────
+void termOK(const char* msg) {
+  termLog("[ OK ]", C_GREEN,   msg, C_WHITE);
+}
+void termWait(const char* msg) {
+  termLog("[ .. ]", C_YELLOW,  msg, C_YELLOW);
+}
+void termFail(const char* msg) {
+  termLog("[FAIL]", C_RED,     msg, C_RED);
+}
+void termInfo(const char* msg) {
+  termLog("[INFO]", C_GRAY,    msg, C_GRAY);
+}
+void termWifi(const char* msg) {
+  termLog("[WIFI]", C_ACCENT,  msg, C_ACCENT);
+}
+void termBLE(const char* msg) {
+  termLog("[BLE ]", 0xF81F,    msg, 0xF81F);  // Magenta
+}
+void termOTA(const char* msg) {
+  termLog("[OTA ]", C_ORANGE,  msg, C_ORANGE);
+}
+void termSys(const char* msg) {
+  termLog("[SYS ]", 0x867F,    msg, C_WHITE);  // Purple-ish
+}
+
+// ── Overwrite last line badge (e.g. [ .. ] → [ OK ]) ─────
+void termUpdateLastBadge(const char* badge, uint16_t color) {
+  if (termLineCount == 0) return;
+  strncpy(termLines[termLineCount - 1].badge, badge, 7);
+  termLines[termLineCount - 1].badgeColor = color;
+
+  int visibleLines = (TERM_BOT_PROV - TERM_TOP_Y) / TERM_LINE_H;
+  int lastVisible  = termLineCount - 1 - termScrollTop;
+  if (lastVisible >= 0 && lastVisible < visibleLines) {
+    int y = TERM_TOP_Y + lastVisible * TERM_LINE_H;
+    // Just redraw badge part
+    tft.fillRect(0, y, TERM_BADGE_W, TERM_LINE_H, TFT_BLACK);
+    tft.setTextColor(color, TFT_BLACK);
+    tft.setTextSize(1);
+    tft.setCursor(3, y + 2);
+    tft.print(badge);
+  }
+}
+
+// ── Bottom status bar on terminal ─────────────────────────
+// Shows uptime + chip info
+void termDrawFooter() {
+  tft.fillRect(0, 210, 320, 30, 0x0821);
+  tft.drawFastHLine(0, 210, 320, C_DARKGRAY);
+
+  tft.setTextColor(C_DARKGRAY, 0x0821);
+  tft.setTextSize(1);
+  tft.setCursor(6, 215);
+  tft.print("ESP32 | Flash: ");
+  tft.print(ESP.getFlashChipSize() / 1024);
+  tft.print("kB | RAM: ");
+  tft.print(ESP.getFreeHeap() / 1024);
+  tft.print("kB");
+
+  unsigned long upSec = millis() / 1000;
+  char ubuf[20];
+  snprintf(ubuf, sizeof(ubuf), "Up: %02lu:%02lu:%02lu",
+           upSec / 3600, (upSec % 3600) / 60, upSec % 60);
+  tft.setCursor(220, 215);
+  tft.print(ubuf);
+}
+
+// ── BLE Provisioning instruction box ─────────────────────
+void termDrawProvBox() {
+  int bx = 4, by = 212, bw = 312, bh = 26;
+  tft.fillRoundRect(bx, by, bw, bh, 4, 0x0C18);
+  tft.drawRoundRect(bx, by, bw, bh, 4, 0xF81F); // Magenta border
+
+  tft.setTextColor(0xF81F, 0x0C18);  // Magenta
+  tft.setTextSize(1);
+  tft.setCursor(bx + 6, by + 4);
+  tft.print("[BLE PROV]");
+
+  tft.setTextColor(C_WHITE, 0x0C18);
+  tft.setCursor(bx + 70, by + 4);
+  tft.print("App: ESP RainMaker");
+
+  tft.setTextColor(C_YELLOW, 0x0C18);
+  tft.setCursor(bx + 6, by + 15);
+  tft.print("Device: ");
+  tft.setTextColor(C_GREEN, 0x0C18);
+  tft.print(service_name);
+  tft.setTextColor(C_YELLOW, 0x0C18);
+  tft.print("  POP: ");
+  tft.setTextColor(C_GREEN, 0x0C18);
+  tft.print(pop);
+}
+
+// ── WiFi connecting animated dots bar ─────────────────────
+// Call repeatedly from loop while connecting
+int  wifiDotState    = 0;
+unsigned long lastDotTime = 0;
+void termAnimateWifi() {
+  if (!dashboardLaunched && millis() - lastDotTime > 400) {
+    lastDotTime = millis();
+    // Update last line msg with animated dots
+    if (termLineCount > 0) {
+      char dotmsg[64];
+      const char* dots[] = {"Connecting to WiFi .  ", "Connecting to WiFi .. ", "Connecting to WiFi ..."};
+      snprintf(dotmsg, sizeof(dotmsg), "%s", dots[wifiDotState % 3]);
+      strncpy(termLines[termLineCount - 1].msg, dotmsg, 63);
+      termLines[termLineCount - 1].msgColor   = C_YELLOW;
+      termLines[termLineCount - 1].badgeColor = C_YELLOW;
+
+      int visibleLines = (TERM_BOT_PROV - TERM_TOP_Y) / TERM_LINE_H;
+      int lastVisible  = termLineCount - 1 - termScrollTop;
+      if (lastVisible >= 0 && lastVisible < visibleLines) {
+        int y = TERM_TOP_Y + lastVisible * TERM_LINE_H;
+        tft.fillRect(TERM_BADGE_W + 2, y, 320 - TERM_BADGE_W - 2, TERM_LINE_H, TFT_BLACK);
+        tft.setTextColor(C_YELLOW, TFT_BLACK);
+        tft.setTextSize(1);
+        tft.setCursor(TERM_BADGE_W + 2, y + 2);
+        tft.print(dotmsg);
+      }
+      wifiDotState++;
+    }
+    // Also refresh footer uptime
+    termDrawFooter();
+  }
+}
+
+// ── Final launch animation terminal → dashboard ───────────
+void termLaunchDashboard() {
+  termLog("[>>>>]", C_ACCENT, "All systems ready! Launching Dashboard...", C_ACCENT);
+  delay(300);
+
+  // Progress bar over footer area
+  int bx = 10, by = 218, bw = 300, bh = 12;
+  tft.fillRect(0, 210, 320, 30, TFT_BLACK);
+  tft.drawFastHLine(0, 210, 320, C_ACCENT);
   tft.setTextColor(C_ACCENT, TFT_BLACK);
   tft.setTextSize(1);
-  tft.setCursor(barX, barY - 13);
-  tft.print(label);
+  tft.setCursor(10, 212);
+  tft.print("Loading Dashboard...");
 
-  // Bar background
-  tft.fillRect(barX, barY, barW, barH, C_DARKGRAY);
-  tft.drawRect(barX - 1, barY - 1, barW + 2, barH + 2, C_ACCENT);
+  tft.fillRect(bx, by, bw, bh, C_DARKGRAY);
+  tft.drawRect(bx - 1, by - 1, bw + 2, bh + 2, C_ACCENT);
 
-  // Filled portion
-  int filled = (barW * percent) / 100;
-  // Gradient-ish: use cyan-to-green
-  for (int i = 0; i < filled; i++) {
-    uint16_t col = (i < filled / 2) ? C_ACCENT : C_GREEN;
-    tft.drawFastVLine(barX + i, barY, barH, col);
+  for (int p = 0; p <= 100; p += 3) {
+    int filled = (bw * p) / 100;
+    for (int i = 0; i < filled; i++) {
+      uint16_t col = (i < filled / 3) ? C_ACCENT
+                   : (i < 2*filled/3)  ? 0x07CF
+                   : C_GREEN;
+      tft.drawFastVLine(bx + i, by, bh, col);
+    }
+    char pbuf[8]; snprintf(pbuf, sizeof(pbuf), " %d%%", p);
+    tft.setTextColor(TFT_BLACK, TFT_BLACK);
+    tft.setCursor(bx + bw/2 - 8, by + 2);
+    tft.setTextColor(C_BG);
+    tft.print(pbuf);
+    delay(12);
   }
+  delay(400);
 
-  // Percentage text centered
-  char buf[8];
-  snprintf(buf, sizeof(buf), "%d%%", percent);
-  tft.setTextColor(TFT_BLACK, TFT_BLACK);
-  // White text over bar
-  tft.setTextColor(TFT_BLACK);
-  int tx = barX + (barW / 2) - 10;
-  tft.setCursor(tx, barY + 3);
-  tft.setTextColor(C_BG);
-  tft.print(buf);
+  // Flash transition
+  tft.fillScreen(C_GREEN);
+  delay(60);
+  tft.fillScreen(TFT_BLACK);
+  delay(60);
 }
 
-// Full animated boot sequence
+// ── Initial terminal screen setup ─────────────────────────
+void termInit() {
+  tft.fillScreen(TFT_BLACK);
+  termDrawHeader();
+  termDrawFooter();
+}
+
+// ── Full boot sequence (runs once at startup) ─────────────
 void runBootSequence() {
-  drawBootScreen();
-  delay(300);
-
-  bootLogAdd("[ OK ]", "Initializing ESP32 system...",    C_GREEN);
-  bootLogAdd("[ OK ]", "TFT Display initialized",         C_GREEN);
-  bootLogAdd("[ OK ]", "EEPROM mounted (" CURRENT_FIRMWARE_VERSION ")",  C_GREEN);
-
-  // Animate: loading EEPROM relay states
-  bootLogAdd("[ .. ]", "Loading relay states from EEPROM", C_YELLOW);
-  delay(300);
-  // Overwrite the ".." line with OK (move cursor back)
-  tft.fillRect(4, 22 + (bootLogCount-1)*13, 40, 12, TFT_BLACK);
-  tft.setTextColor(C_GREEN, TFT_BLACK);
-  tft.setCursor(4, 22 + (bootLogCount-1)*13);
-  tft.print("[ OK ]");
+  termInit();
   delay(200);
 
-  bootLogAdd("[ OK ]", "GPIO relay pins configured",       C_GREEN);
-  bootLogAdd("[ OK ]", "AceButton handlers attached",      C_GREEN);
-  bootLogAdd("[ OK ]", "DHT11 sensor starting...",         C_GREEN);
-  bootLogAdd("[ OK ]", "RainMaker node: ESPHome",          C_GREEN);
-  bootLogAdd("[ .. ]", "Starting WiFi provisioning (BLE)", C_YELLOW);
+  // ── System init ──────────────────────────────
+  termSys("ESP32 system starting up...");
+  delay(100);
+  termOK("TFT ILI9341 display initialized  [320x240]");
+  delay(80);
+
+  // ── EEPROM ───────────────────────────────────
+  termWait("Mounting EEPROM...");
+  delay(250);
+  termUpdateLastBadge("[ OK ]", C_GREEN);
+  char eepmsg[48];
+  snprintf(eepmsg, sizeof(eepmsg), "EEPROM mounted  size=%d bytes  fw=%s",
+           EEPROM_SIZE, CURRENT_FIRMWARE_VERSION);
+  termOK(eepmsg);
+
+  // ── Relay states ─────────────────────────────
+  termWait("Restoring relay states from EEPROM...");
+  delay(300);
+  termUpdateLastBadge("[ OK ]", C_GREEN);
+  char relaymsg[64];
+  snprintf(relaymsg, sizeof(relaymsg),
+           "Relays restored  L1=%d L2=%d Fan=%d TV=%d",
+           toggleState_1, toggleState_2, toggleState_3, toggleState_4);
+  termOK(relaymsg);
+
+  // ── GPIO ─────────────────────────────────────
+  char gpiomsg[64];
+  snprintf(gpiomsg, sizeof(gpiomsg),
+           "Relay GPIO  %d %d %d %d  configured",
+           RelayPin1, RelayPin2, RelayPin3, RelayPin4);
+  termOK(gpiomsg);
+  char swmsg[64];
+  snprintf(swmsg, sizeof(swmsg),
+           "Switch GPIO  %d %d %d %d  INPUT_PULLUP",
+           SwitchPin1, SwitchPin2, SwitchPin3, SwitchPin4);
+  termOK(swmsg);
+
+  // ── DHT11 ────────────────────────────────────
+  termWait("Starting DHT11 sensor on GPIO 35...");
   delay(400);
-  tft.fillRect(4, 22 + (bootLogCount-1)*13, 40, 12, TFT_BLACK);
-  tft.setTextColor(C_GREEN, TFT_BLACK);
-  tft.setCursor(4, 22 + (bootLogCount-1)*13);
-  tft.print("[ OK ]");
-
-  bootLogAdd("[>>>>]", "Launching Smart Dashboard...",     C_ACCENT);
-
-  // Animated progress bar 0→100%
-  for (int p = 0; p <= 100; p += 2) {
-    drawBootProgress(p, "Loading Dashboard");
-    delay(18);
+  float th = dht.readHumidity();
+  float tt = dht.readTemperature();
+  if (!isnan(tt) && !isnan(th)) {
+    char dhtmsg[48];
+    snprintf(dhtmsg, sizeof(dhtmsg), "DHT11 OK  Temp=%.1fC  Hum=%.1f%%", tt, th);
+    termUpdateLastBadge("[ OK ]", C_GREEN);
+    termOK(dhtmsg);
+    currentTemp = tt; currentHumidity = th; sensorError = false;
+  } else {
+    termUpdateLastBadge("[WARN]", C_ORANGE);
+    termLog("[WARN]", C_ORANGE, "DHT11 no data yet — will retry in loop", C_ORANGE);
   }
-  delay(500);
 
-  // Final flash effect
-  tft.fillScreen(C_ACCENT);
-  delay(80);
-  tft.fillScreen(TFT_BLACK);
-  delay(80);
+  // ── AceButton ────────────────────────────────
+  termOK("AceButton handlers registered  x4");
+
+  // ── RainMaker ────────────────────────────────
+  termWait("Initializing ESP RainMaker node...");
+  delay(200);
+  termUpdateLastBadge("[ OK ]", C_GREEN);
+  termOK("RainMaker node: ESPHome  devices=6");
+
+  // ── BLE Provisioning notice ──────────────────
+  termBLE("Starting BLE provisioning service...");
+  delay(300);
+  char blemsg[64];
+  snprintf(blemsg, sizeof(blemsg), "BLE ready  SSID=%s  POP=%s", service_name, pop);
+  termBLE(blemsg);
+  termBLE("Open 'ESP RainMaker' app to provision WiFi");
+
+  // Draw provisioning instruction box at bottom
+  termDrawProvBox();
+
+  // ── WiFi connecting (animated — loop handles dots) ───
+  termWifi("Connecting to WiFi ...");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -880,12 +1085,20 @@ void write_callback(Device *device, Param *param,
 
 // ═══════════════════════════════════════════════════════════
 //  WIFI PROVISIONING EVENT
+//  Sab events terminal pe dikhte hain, dashboard baad mein
 // ═══════════════════════════════════════════════════════════
 void sysProvEvent(arduino_event_t *sys_event) {
   switch (sys_event->event_id) {
+
     case ARDUINO_EVENT_PROV_START:
-      Serial.println("Provisioning started");
+      Serial.println("[BLE] Provisioning started");
+      provisioningActive = true;
+      if (!dashboardLaunched) {
+        termBLE("BLE provisioning started — waiting for app...");
+        termDrawProvBox();
+      }
       stopWiFiLedTask();
+      // Fast double blink = provisioning mode
       xTaskCreate([](void *){
         int s = 0;
         for (;;) {
@@ -896,12 +1109,31 @@ void sysProvEvent(arduino_event_t *sys_event) {
       }, "WiFiLED_P", 1024, NULL, 1, &wifiLedTaskHandle);
       break;
 
+    case ARDUINO_EVENT_PROV_CRED_RECV:
+      Serial.println("[BLE] Credentials received");
+      if (!dashboardLaunched) {
+        // Clear prov box, show credential received
+        tft.fillRect(0, 210, 320, 30, TFT_BLACK);
+        termBLE("WiFi credentials received from app!");
+        termWifi("Attempting WiFi connection...");
+      }
+      break;
+
+    case ARDUINO_EVENT_PROV_CRED_FAIL:
+      Serial.println("[BLE] Credentials failed");
+      if (!dashboardLaunched) {
+        termFail("WiFi credentials invalid — retry in app");
+        termDrawProvBox();
+      }
+      break;
+
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-      Serial.println("WiFi Connected");
+      Serial.println("[WIFI] Connected");
       wifiConnected = true;
       wifiIP = WiFi.localIP().toString();
       syncTime();
       stopWiFiLedTask();
+      // Double blink pattern = connected
       xTaskCreate([](void *){
         const int p[] = {100,100,200,100,100,1500};
         int idx = 0; bool ls = LOW;
@@ -911,14 +1143,37 @@ void sysProvEvent(arduino_event_t *sys_event) {
           idx = (idx + 1) % 6;
         }
       }, "WiFiLED_C", 1024, NULL, 1, &wifiLedTaskHandle);
-      refreshTopBar();
+
+      if (!dashboardLaunched) {
+        // Clear WiFi dots line and show connected
+        tft.fillRect(0, 210, 320, 30, TFT_BLACK);
+        termUpdateLastBadge("[ OK ]", C_GREEN);
+        char connmsg[48];
+        snprintf(connmsg, sizeof(connmsg), "WiFi connected  IP: %s", wifiIP.c_str());
+        termWifi(connmsg);
+        // Show SSID
+        char ssidmsg[48];
+        snprintf(ssidmsg, sizeof(ssidmsg), "SSID: %s  RSSI: %d dBm",
+                 WiFi.SSID().c_str(), WiFi.RSSI());
+        termInfo(ssidmsg);
+        termOK("NTP time sync started  (IST UTC+5:30)");
+        delay(600);
+        // Launch dashboard
+        termLaunchDashboard();
+        dashboardLaunched = true;
+        drawDashboard();
+      } else {
+        // Already on dashboard — just refresh top bar
+        refreshTopBar();
+      }
       break;
 
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-      Serial.println("WiFi Disconnected");
+      Serial.println("[WIFI] Disconnected");
       wifiConnected = false;
       wifiIP = "---";
       stopWiFiLedTask();
+      // Slow blink = disconnected
       xTaskCreate([](void *){
         bool ls = LOW;
         for (;;) {
@@ -926,11 +1181,23 @@ void sysProvEvent(arduino_event_t *sys_event) {
           vTaskDelay(500 / portTICK_PERIOD_MS);
         }
       }, "WiFiLED_D", 1024, NULL, 1, &wifiLedTaskHandle);
-      refreshTopBar();
+
+      if (dashboardLaunched) {
+        // On dashboard — just update top bar, keep working
+        refreshTopBar();
+      } else {
+        // Still in terminal — show retry
+        termFail("WiFi disconnected — retrying...");
+        termWifi("Connecting to WiFi ...");
+      }
       break;
 
     case ARDUINO_EVENT_PROV_END:
-      Serial.println("Provisioning ended");
+      Serial.println("[BLE] Provisioning ended");
+      provisioningActive = false;
+      if (!dashboardLaunched) {
+        termBLE("Provisioning session ended");
+      }
       break;
 
     default: break;
@@ -1014,16 +1281,26 @@ void setup() {
   my_switch3.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_3);
   my_switch4.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_4);
 
-  // ── Draw dashboard ────────────────────────────────────
-  drawDashboard();
+  // Dashboard launch is handled in sysProvEvent
+  // (ARDUINO_EVENT_WIFI_STA_CONNECTED triggers termLaunchDashboard + drawDashboard)
+  // If no WiFi provisioned yet, terminal stays visible with BLE instructions
 
-  Serial.println("[SYSTEM] Dashboard live!");
+  Serial.println("[SYSTEM] Boot complete. Waiting for WiFi...");
 }
 
 // ═══════════════════════════════════════════════════════════
 //  LOOP
 // ═══════════════════════════════════════════════════════════
 void loop() {
+  // ── Animate WiFi dots on terminal (before dashboard) ──
+  if (!dashboardLaunched) {
+    termAnimateWifi();
+    // Buttons still work during provisioning
+    button1.check(); button2.check();
+    button3.check(); button4.check();
+    return;
+  }
+
   // ── Factory / WiFi reset button ───────────────────────
   if (digitalRead(gpio_reset) == LOW) {
     delay(100);

@@ -14,13 +14,13 @@ jobs:
     # 1. Checkout
     # ──────────────────────────────────────────────
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4.2.2
 
     # ──────────────────────────────────────────────
     # 2. Arduino CLI setup
     # ──────────────────────────────────────────────
     - name: Set up Arduino CLI
-      uses: arduino/setup-arduino-cli@v1
+      uses: arduino/setup-arduino-cli@v2
 
     # ──────────────────────────────────────────────
     # 3. ESP32 Core  (RainMaker needs 2.0.x)
@@ -33,7 +33,7 @@ jobs:
           --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
     # ──────────────────────────────────────────────
-    # 4. Libraries  (U8g2 removed → TFT_eSPI added)
+    # 4. Libraries  (U8g2 removed, TFT_eSPI added)
     # ──────────────────────────────────────────────
     - name: Install required libraries
       run: |
@@ -45,31 +45,37 @@ jobs:
 
     # ──────────────────────────────────────────────────────────
     # 5. Replace TFT_eSPI User_Setup.h with repo's own copy
-    #    Repo mein User_Setup.h rakho (apni actual wiring wali)
+    #    Repo root mein User_Setup.h rakho (teri actual wiring)
     #    CI us file ko library folder mein copy kar deta hai
     # ──────────────────────────────────────────────────────────
     - name: Configure TFT_eSPI User_Setup.h
       run: |
-        SETUP_FILE=$(find /root/Arduino/libraries/TFT_eSPI -name "User_Setup.h" | head -1)
+        # GitHub Actions ubuntu-latest pe libraries $HOME/Arduino/libraries mein hoti hain
+        SETUP_FILE=$(find "$HOME/Arduino/libraries" /opt -name "User_Setup.h" -path "*/TFT_eSPI/*" 2>/dev/null | head -1)
+
         echo "Found library setup file: $SETUP_FILE"
 
-        # Repo root mein User_Setup.h honi chahiye
-        if [ ! -f "User_Setup.h" ]; then
-          echo "ERROR: User_Setup.h not found in repo root!"
+        if [ -z "$SETUP_FILE" ]; then
+          echo "ERROR: TFT_eSPI User_Setup.h nahi mili!"
+          echo "--- Arduino library dirs ---"
+          ls -la "$HOME/Arduino/libraries/" 2>/dev/null || echo "Dir not found"
           exit 1
         fi
 
-        # Replace library's default User_Setup.h with our custom one
+        if [ ! -f "User_Setup.h" ]; then
+          echo "ERROR: User_Setup.h repo root mein nahi hai!"
+          exit 1
+        fi
+
         cp User_Setup.h "$SETUP_FILE"
         echo "User_Setup.h replaced successfully."
 
-        # Verify key settings are present
-        echo "--- Verifying driver ---"
-        grep "ILI9341" "$SETUP_FILE" | grep -v "//"
-        echo "--- Verifying pins ---"
-        grep "TFT_MOSI\|TFT_SCLK\|TFT_CS\|TFT_DC\|TFT_RST" "$SETUP_FILE" | grep -v "//"
-        echo "--- Verifying SPI speed ---"
-        grep "SPI_FREQUENCY" "$SETUP_FILE" | grep -v "//"
+        echo "--- Driver ---"
+        grep "ILI9341" "$SETUP_FILE" | grep -v "//" || true
+        echo "--- Pins ---"
+        grep "TFT_MOSI\|TFT_SCLK\|TFT_CS\|TFT_DC\|TFT_RST" "$SETUP_FILE" | grep -v "//" || true
+        echo "--- SPI Speed ---"
+        grep "SPI_FREQUENCY" "$SETUP_FILE" | grep -v "//" || true
 
     # ──────────────────────────────────────────────
     # 6. Show board details (debug)
@@ -94,55 +100,116 @@ jobs:
           .
 
     # ──────────────────────────────────────────────
-    # 8. Rename .bin to include version tag
-    #    e.g.  firmware-v1.2.0.ino.bin
+    # 8. Organize all flash files into release folder
     # ──────────────────────────────────────────────
-    - name: Rename firmware binary
+    - name: Prepare flash package
       run: |
         TAG=${{ github.ref_name }}
         SKETCH=$(basename "$GITHUB_WORKSPACE")
-        SRC="build/${SKETCH}.ino.bin"
-        DST="build/firmware-${TAG}.ino.bin"
+        mkdir -p flash-package
 
-        if [ -f "$SRC" ]; then
-          mv "$SRC" "$DST"
-          echo "Renamed: $SRC → $DST"
+        echo "--- All build files ---"
+        ls -lh build/
+
+        # Main firmware
+        cp "build/${SKETCH}.ino.bin"            flash-package/firmware.bin
+
+        # Bootloader
+        cp "build/${SKETCH}.ino.bootloader.bin" flash-package/bootloader.bin
+
+        # Partition table
+        cp "build/${SKETCH}.ino.partitions.bin" flash-package/partitions.bin
+
+        # Boot app (needed for OTA partition init)
+        # Located in ESP32 core — find and copy
+        BOOT_APP=$(find $HOME/.arduino15 -name "boot_app0.bin" 2>/dev/null | head -1)
+        if [ -n "$BOOT_APP" ]; then
+          cp "$BOOT_APP" flash-package/boot_app0.bin
+          echo "boot_app0.bin copied from: $BOOT_APP"
         else
-          echo "Source not found: $SRC"
-          ls build/
-          exit 1
+          echo "WARNING: boot_app0.bin not found"
         fi
 
+        # Generate flash_args file (esptool flash addresses)
+        cat > flash-package/flash_args.txt << 'ARGS'
+        --chip esp32 --baud 460800 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size detect
+        0x1000  bootloader.bin
+        0x8000  partitions.bin
+        0xe000  boot_app0.bin
+        0x10000 firmware.bin
+        ARGS
+
+        # Generate single esptool command for convenience
+        cat > flash-package/FLASH_COMMAND.txt << FLASHCMD
+        === ESPHome Dashboard ${TAG} — Flash Instructions ===
+
+        1. Install esptool:
+           pip install esptool
+
+        2. Flash all files (replace COMx with your port):
+           esptool.py --chip esp32 --port COMx --baud 460800 \
+             write_flash \
+             0x1000  bootloader.bin \
+             0x8000  partitions.bin \
+             0xe000  boot_app0.bin  \
+             0x10000 firmware.bin
+
+        3. OTA only (already flashed once):
+           esptool.py --chip esp32 --port COMx --baud 460800 \
+             write_flash 0x10000 firmware.bin
+
+        === Linux/Mac: replace COMx with /dev/ttyUSB0 or /dev/tty.usbserial ===
+        FLASHCMD
+
+        echo "--- Flash package contents ---"
+        ls -lh flash-package/
+
     # ──────────────────────────────────────────────
-    # 9. Show build artifacts (debug)
+    # 9. List build output (debug)
     # ──────────────────────────────────────────────
     - name: List build output
       run: ls -lh build/
 
     # ──────────────────────────────────────────────
-    # 10. GitHub Release — only .ino.bin uploaded
-    #     (skips bootloader/partition .bin files)
+    # 10. Upload complete flash package as artifact
+    #     (Actions tab — 30 din available)
+    # ──────────────────────────────────────────────
+    - name: Upload flash package artifact
+      uses: actions/upload-artifact@v4.6.2
+      with:
+        name: ESPHome-Dashboard-${{ github.ref_name }}-flash-package
+        path: flash-package/
+        retention-days: 30
+
+    # ──────────────────────────────────────────────
+    # 11. GitHub Release
+    #     OTA ke liye sirf firmware.bin chahiye
+    #     Fresh flash ke liye baaki files bhi
     # ──────────────────────────────────────────────
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v2.2.1
       with:
         name: "ESPHome Dashboard ${{ github.ref_name }}"
         tag_name: ${{ github.ref_name }}
         body: |
           ## ESPHome Smart Dashboard ${{ github.ref_name }}
 
-          ### Flashing Instructions
+          ### Fresh Flash (pehli baar)
           ```
-          esptool.py --chip esp32 --baud 460800 write_flash 0x10000 firmware-${{ github.ref_name }}.ino.bin
+          esptool.py --chip esp32 --port COMx --baud 460800 write_flash             0x1000  bootloader.bin             0x8000  partitions.bin             0xe000  boot_app0.bin              0x10000 firmware.bin
           ```
 
-          ### OTA (Over The Air)
-          This firmware supports automatic OTA updates via GitHub Releases.
-          The device will auto-detect and install newer versions within 5 minutes.
-
-          ### Changelog
-          - See commit history for changes since last release.
-        files: build/firmware-${{ github.ref_name }}.ino.bin
-        fail_on_unmatched_files: true
+          ### OTA Only (already flashed)
+          Device automatically checks every 5 minutes.
+          Manual OTA:
+          ```
+          esptool.py --chip esp32 --port COMx --baud 460800 write_flash 0x10000 firmware.bin
+          ```
+        files: |
+          flash-package/firmware.bin
+          flash-package/bootloader.bin
+          flash-package/partitions.bin
+          flash-package/boot_app0.bin
+          flash-package/FLASH_COMMAND.txt
       env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

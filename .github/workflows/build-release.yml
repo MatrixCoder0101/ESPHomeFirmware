@@ -100,36 +100,19 @@ jobs:
           .
 
     # ──────────────────────────────────────────────
-    # 8. Rename .bin to include version tag
-    # ──────────────────────────────────────────────
-    - name: Rename firmware binary
-      run: |
-        TAG=${{ github.ref_name }}
-        SKETCH=$(basename "$GITHUB_WORKSPACE")
-        SRC="build/${SKETCH}.ino.bin"
-        DST="build/firmware-${TAG}.ino.bin"
-
-        if [ -f "$SRC" ]; then
-          mv "$SRC" "$DST"
-          echo "Renamed: $SRC to $DST"
-        else
-          echo "Source not found: $SRC"
-          ls build/
-          exit 1
-        fi
-
-    # ──────────────────────────────────────────────
-    # 9. List build output (debug)
+    # 8. List build output (debug)
     # ──────────────────────────────────────────────
     - name: List build output
       run: ls -lh build/
 
     # ──────────────────────────────────────────────
-    # 10. Upload to GitHub Actions Artifacts
+    # 9. GitHub Release — sab build files upload
     # ──────────────────────────────────────────────
-    - name: Upload firmware artifact
-      uses: actions/upload-artifact@v4.6.2
+    - name: Create Release and Upload Firmware
+      uses: softprops/action-gh-release@v2.2.1
       with:
-        name: firmware-${{ github.ref_name }}
-        path: build/firmware-${{ github.ref_name }}.ino.bin
-        retention-days: 30
+        name: Release ${{ github.ref_name }}
+        tag_name: ${{ github.ref_name }}
+        files: build/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

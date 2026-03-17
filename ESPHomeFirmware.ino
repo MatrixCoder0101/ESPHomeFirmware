@@ -66,16 +66,16 @@ TFT_eSPI tft = TFT_eSPI();
 #define GITHUB_USER              "MatrixCoder0101"
 #define GITHUB_REPO              "ESPHomeFirmware"
 #define EEPROM_VERSION_ADDR      8
-#define DHTPIN                   26
+#define DHTPIN                   35
 #define DHTTYPE                  DHT11
 
 // ─────────────────────────────────────────────
 //  GPIO
 // ─────────────────────────────────────────────
-static uint8_t RelayPin1 = 23;
-static uint8_t RelayPin2 = 19;
-static uint8_t RelayPin3 = 18;
-static uint8_t RelayPin4 = 5;
+static uint8_t RelayPin1 = 32;
+static uint8_t RelayPin2 = 33;
+static uint8_t RelayPin3 = 25;
+static uint8_t RelayPin4 = 26;
 
 static uint8_t SwitchPin1 = 13;
 static uint8_t SwitchPin2 = 12;

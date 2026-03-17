@@ -10,39 +10,139 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    # ──────────────────────────────────────────────
+    # 1. Checkout
+    # ──────────────────────────────────────────────
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
+    # ──────────────────────────────────────────────
+    # 2. Arduino CLI setup
+    # ──────────────────────────────────────────────
     - name: Set up Arduino CLI
       uses: arduino/setup-arduino-cli@v1
 
-    - name: Install ESP32 core v2.0.3
+    # ──────────────────────────────────────────────
+    # 3. ESP32 Core  (RainMaker needs 2.0.x)
+    # ──────────────────────────────────────────────
+    - name: Install ESP32 core
       run: |
-        arduino-cli core update-index
-        arduino-cli core install esp32:esp32@2.0.6
+        arduino-cli core update-index \
+          --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+        arduino-cli core install esp32:esp32@2.0.6 \
+          --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-    - name: Install Required Arduino Libraries
+    # ──────────────────────────────────────────────
+    # 4. Libraries  (U8g2 removed → TFT_eSPI added)
+    # ──────────────────────────────────────────────
+    - name: Install required libraries
       run: |
-        arduino-cli lib install "WiFiProvision"
         arduino-cli lib install "ArduinoJson@6.18.3"
         arduino-cli lib install "AceButton"
-        arduino-cli lib install "U8g2"
-        arduino-cli lib install "ArduinoHttpClient"
+        arduino-cli lib install "TFT_eSPI"
         arduino-cli lib install "DHT sensor library"
+        arduino-cli lib install "Adafruit Unified Sensor"
 
-    - name: Show available boards and options
+    # ──────────────────────────────────────────────────────────
+    # 5. Replace TFT_eSPI User_Setup.h with repo's own copy
+    #    Repo mein User_Setup.h rakho (apni actual wiring wali)
+    #    CI us file ko library folder mein copy kar deta hai
+    # ──────────────────────────────────────────────────────────
+    - name: Configure TFT_eSPI User_Setup.h
       run: |
-        arduino-cli board details --fqbn esp32:esp32:esp32
-    
+        SETUP_FILE=$(find /root/Arduino/libraries/TFT_eSPI -name "User_Setup.h" | head -1)
+        echo "Found library setup file: $SETUP_FILE"
+
+        # Repo root mein User_Setup.h honi chahiye
+        if [ ! -f "User_Setup.h" ]; then
+          echo "ERROR: User_Setup.h not found in repo root!"
+          exit 1
+        fi
+
+        # Replace library's default User_Setup.h with our custom one
+        cp User_Setup.h "$SETUP_FILE"
+        echo "User_Setup.h replaced successfully."
+
+        # Verify key settings are present
+        echo "--- Verifying driver ---"
+        grep "ILI9341" "$SETUP_FILE" | grep -v "//"
+        echo "--- Verifying pins ---"
+        grep "TFT_MOSI\|TFT_SCLK\|TFT_CS\|TFT_DC\|TFT_RST" "$SETUP_FILE" | grep -v "//"
+        echo "--- Verifying SPI speed ---"
+        grep "SPI_FREQUENCY" "$SETUP_FILE" | grep -v "//"
+
+    # ──────────────────────────────────────────────
+    # 6. Show board details (debug)
+    # ──────────────────────────────────────────────
+    - name: Show board details
+      run: |
+        arduino-cli board details \
+          --fqbn esp32:esp32:esp32 \
+          --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+    # ──────────────────────────────────────────────
+    # 7. Compile
+    # ──────────────────────────────────────────────
     - name: Compile firmware
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32 --board-options PartitionScheme=rainmaker . --output-dir build
+        arduino-cli compile \
+          --fqbn esp32:esp32:esp32 \
+          --board-options PartitionScheme=rainmaker \
+          --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json \
+          --warnings default \
+          --output-dir build \
+          .
 
-    - name: Create Release and Upload Firmware
+    # ──────────────────────────────────────────────
+    # 8. Rename .bin to include version tag
+    #    e.g.  firmware-v1.2.0.ino.bin
+    # ──────────────────────────────────────────────
+    - name: Rename firmware binary
+      run: |
+        TAG=${{ github.ref_name }}
+        SKETCH=$(basename "$GITHUB_WORKSPACE")
+        SRC="build/${SKETCH}.ino.bin"
+        DST="build/firmware-${TAG}.ino.bin"
+
+        if [ -f "$SRC" ]; then
+          mv "$SRC" "$DST"
+          echo "Renamed: $SRC → $DST"
+        else
+          echo "Source not found: $SRC"
+          ls build/
+          exit 1
+        fi
+
+    # ──────────────────────────────────────────────
+    # 9. Show build artifacts (debug)
+    # ──────────────────────────────────────────────
+    - name: List build output
+      run: ls -lh build/
+
+    # ──────────────────────────────────────────────
+    # 10. GitHub Release — only .ino.bin uploaded
+    #     (skips bootloader/partition .bin files)
+    # ──────────────────────────────────────────────
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
-        name: Release ${{ github.ref_name }}
+        name: "ESPHome Dashboard ${{ github.ref_name }}"
         tag_name: ${{ github.ref_name }}
-        files: build/*
+        body: |
+          ## ESPHome Smart Dashboard ${{ github.ref_name }}
+
+          ### Flashing Instructions
+          ```
+          esptool.py --chip esp32 --baud 460800 write_flash 0x10000 firmware-${{ github.ref_name }}.ino.bin
+          ```
+
+          ### OTA (Over The Air)
+          This firmware supports automatic OTA updates via GitHub Releases.
+          The device will auto-detect and install newer versions within 5 minutes.
+
+          ### Changelog
+          - See commit history for changes since last release.
+        files: build/firmware-${{ github.ref_name }}.ino.bin
+        fail_on_unmatched_files: true
       env:
         GITHUB_TOKEN: ${{ secrets.TOKEN }}

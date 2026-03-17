@@ -33,7 +33,7 @@ jobs:
           --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
     # ──────────────────────────────────────────────
-    # 4. Libraries  (U8g2 removed, TFT_eSPI added)
+    # 4. Libraries  (U8g2 removed → TFT_eSPI added)
     # ──────────────────────────────────────────────
     - name: Install required libraries
       run: |
@@ -45,36 +45,30 @@ jobs:
 
     # ──────────────────────────────────────────────────────────
     # 5. Replace TFT_eSPI User_Setup.h with repo's own copy
-    #    Repo root mein User_Setup.h rakho (teri actual wiring)
+    #    Repo mein User_Setup.h rakho (apni actual wiring wali)
     #    CI us file ko library folder mein copy kar deta hai
     # ──────────────────────────────────────────────────────────
     - name: Configure TFT_eSPI User_Setup.h
       run: |
-        # GitHub Actions ubuntu-latest pe libraries $HOME/Arduino/libraries mein hoti hain
-        SETUP_FILE=$(find "$HOME/Arduino/libraries" /opt -name "User_Setup.h" -path "*/TFT_eSPI/*" 2>/dev/null | head -1)
-
+        SETUP_FILE=$(find /root/Arduino/libraries/TFT_eSPI -name "User_Setup.h" | head -1)
         echo "Found library setup file: $SETUP_FILE"
 
-        if [ -z "$SETUP_FILE" ]; then
-          echo "ERROR: TFT_eSPI User_Setup.h nahi mili!"
-          echo "--- Arduino library dirs ---"
-          ls -la "$HOME/Arduino/libraries/" 2>/dev/null || echo "Dir not found"
-          exit 1
-        fi
-
+        # Repo root mein User_Setup.h honi chahiye
         if [ ! -f "User_Setup.h" ]; then
-          echo "ERROR: User_Setup.h repo root mein nahi hai!"
+          echo "ERROR: User_Setup.h not found in repo root!"
           exit 1
         fi
 
+        # Replace library's default User_Setup.h with our custom one
         cp User_Setup.h "$SETUP_FILE"
         echo "User_Setup.h replaced successfully."
 
-        echo "--- Driver ---"
+        # Verify key settings are present
+        echo "--- Verifying driver ---"
         grep "ILI9341" "$SETUP_FILE" | grep -v "//"
-        echo "--- Pins ---"
+        echo "--- Verifying pins ---"
         grep "TFT_MOSI\|TFT_SCLK\|TFT_CS\|TFT_DC\|TFT_RST" "$SETUP_FILE" | grep -v "//"
-        echo "--- SPI Speed ---"
+        echo "--- Verifying SPI speed ---"
         grep "SPI_FREQUENCY" "$SETUP_FILE" | grep -v "//"
 
     # ──────────────────────────────────────────────
@@ -101,6 +95,7 @@ jobs:
 
     # ──────────────────────────────────────────────
     # 8. Rename .bin to include version tag
+    #    e.g.  firmware-v1.2.0.ino.bin
     # ──────────────────────────────────────────────
     - name: Rename firmware binary
       run: |
@@ -111,7 +106,7 @@ jobs:
 
         if [ -f "$SRC" ]; then
           mv "$SRC" "$DST"
-          echo "Renamed: $SRC to $DST"
+          echo "Renamed: $SRC → $DST"
         else
           echo "Source not found: $SRC"
           ls build/
@@ -119,13 +114,14 @@ jobs:
         fi
 
     # ──────────────────────────────────────────────
-    # 9. List build output (debug)
+    # 9. Show build artifacts (debug)
     # ──────────────────────────────────────────────
     - name: List build output
       run: ls -lh build/
 
     # ──────────────────────────────────────────────
-    # 10. GitHub Release
+    # 10. GitHub Release — only .ino.bin uploaded
+    #     (skips bootloader/partition .bin files)
     # ──────────────────────────────────────────────
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2

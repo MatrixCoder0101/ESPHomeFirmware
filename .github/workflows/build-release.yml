@@ -14,13 +14,13 @@ jobs:
     # 1. Checkout
     # ──────────────────────────────────────────────
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4.2.2
 
     # ──────────────────────────────────────────────
     # 2. Arduino CLI setup
     # ──────────────────────────────────────────────
     - name: Set up Arduino CLI
-      uses: arduino/setup-arduino-cli@v1
+      uses: arduino/setup-arduino-cli@v2
 
     # ──────────────────────────────────────────────
     # 3. ESP32 Core  (RainMaker needs 2.0.x)
@@ -125,28 +125,11 @@ jobs:
       run: ls -lh build/
 
     # ──────────────────────────────────────────────
-    # 10. GitHub Release
+    # 10. Upload to GitHub Actions Artifacts
     # ──────────────────────────────────────────────
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
+    - name: Upload firmware artifact
+      uses: actions/upload-artifact@v4.6.2
       with:
-        name: "ESPHome Dashboard ${{ github.ref_name }}"
-        tag_name: ${{ github.ref_name }}
-        body: |
-          ## ESPHome Smart Dashboard ${{ github.ref_name }}
-
-          ### Flashing Instructions
-          ```
-          esptool.py --chip esp32 --baud 460800 write_flash 0x10000 firmware-${{ github.ref_name }}.ino.bin
-          ```
-
-          ### OTA (Over The Air)
-          This firmware supports automatic OTA updates via GitHub Releases.
-          The device will auto-detect and install newer versions within 5 minutes.
-
-          ### Changelog
-          - See commit history for changes since last release.
-        files: build/firmware-${{ github.ref_name }}.ino.bin
-        fail_on_unmatched_files: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        name: firmware-${{ github.ref_name }}
+        path: build/firmware-${{ github.ref_name }}.ino.bin
+        retention-days: 30

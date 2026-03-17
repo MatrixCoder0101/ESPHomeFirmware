@@ -945,7 +945,7 @@ void loop() {
       RMakerFactoryReset(2);
     } else if (duration > 3000) {
       Serial.println("[RESET] WiFi reset");
-      if (!dashboardActive) termLog("[RST ]", C_ORANGE, "WiFi reset — will re-provision", C_ORANGE);
+      if (!dashboardActive) termAdd("[RST ]", C_ORANGE, "WiFi reset — will re-provision", C_ORANGE);
       RMakerWiFiReset(2);
     }
   }

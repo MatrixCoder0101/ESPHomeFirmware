@@ -429,25 +429,41 @@ bool startOTAUpdate(WiFiClient* client, int contentLength, const String& latestV
           lastPct = pct;
           // Show OTA overlay on dashboard or terminal
           if (dashboardActive) {
-            // OTA overlay box
-            tft.fillRoundRect(20, 80, 280, 80, 6, C_PANEL);
-            tft.drawRoundRect(20, 80, 280, 80, 6, C_ORANGE);
-            tft.setTextColor(C_ORANGE, C_PANEL); tft.setTextSize(1);
-            tft.setCursor(30, 92); tft.print("OTA Update  v");
-            tft.print(latestVer);
-            char ps[32]; snprintf(ps, sizeof(ps), "%s / %s",
+            // OTA overlay — cyan/accent color, correct title, no duplicate v
+            tft.fillRoundRect(20, 75, 280, 90, 6, 0x0820);
+            tft.drawRoundRect(20, 75, 280, 90, 6, C_ACCENT);
+
+            // Title
+            tft.setTextColor(C_ACCENT, 0x0820); tft.setTextSize(1);
+            tft.setCursor(30, 87);
+            tft.print("Software Update (OTA)");
+
+            // Version — latestVer already has "v" prefix (e.g. v1.2.0)
+            tft.setTextColor(C_GREEN, 0x0820);
+            tft.setCursor(30, 100);
+            tft.print("New version: "); tft.print(latestVer);
+
+            // Size progress
+            char ps[40];
+            snprintf(ps, sizeof(ps), "%s  /  %s",
               humanReadableSize(written).c_str(),
               humanReadableSize(contentLength).c_str());
-            tft.setTextColor(C_GRAY, C_PANEL);
-            tft.setCursor(30, 105); tft.print(ps);
-            int bx=30, by=118, bw=260, bh=14;
+            tft.setTextColor(C_GRAY, 0x0820);
+            tft.setCursor(30, 113); tft.print(ps);
+
+            // Progress bar
+            int bx=30, by=126, bw=260, bh=14;
             tft.fillRect(bx, by, bw, bh, C_DARKGRAY);
-            tft.drawRect(bx-1, by-1, bw+2, bh+2, C_ORANGE);
+            tft.drawRect(bx-1, by-1, bw+2, bh+2, C_ACCENT);
             int f = bw*pct/100;
-            for (int i=0;i<f;i++) tft.drawFastVLine(bx+i, by, bh, i<f/2?C_ORANGE:C_GREEN);
+            for (int i=0;i<f;i++) {
+              uint16_t c = (i < f/2) ? C_ACCENT : C_GREEN;
+              tft.drawFastVLine(bx+i, by, bh, c);
+            }
             char pb[8]; snprintf(pb, sizeof(pb), "%d%%", pct);
-            tft.setTextColor(C_BG, C_BG); tft.setCursor(bx+bw/2-8, by+3);
-            tft.setTextColor(C_BG); tft.print(pb);
+            tft.setTextColor(C_BG, C_BG);
+            tft.setCursor(bx+bw/2-8, by+3);
+            tft.setTextColor(0x0820); tft.print(pb);
           } else {
             char om[48]; snprintf(om, sizeof(om), "Downloading %d%%  %s",
               pct, humanReadableSize(written).c_str());
@@ -712,9 +728,10 @@ void sysProvEvent(arduino_event_t* sys_event) {
     case ARDUINO_EVENT_PROV_START:
       Serial.printf("[PROV] Started: %s\n", service_name);
       printQR(service_name, pop, "ble");
-      tBLE("BLE provisioning started");
+      // Replace last "Waiting..." line with BLE info — no spam
+      termUpdateLast("[BLE ]", C_MAGENTA, "BLE provisioning ready — open RainMaker app", C_MAGENTA);
       tBLE(("Device: " + String(service_name) + "  POP: " + String(pop)).c_str());
-      tBLE("Open 'ESP RainMaker' app to setup WiFi");
+      tBLE("Scan BLE → select device → enter WiFi credentials");
       termDrawProvBox();
       stopWiFiLedTask();
       xTaskCreate([](void*){
@@ -918,12 +935,14 @@ void setup() {
   my_switch3.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_3);
   my_switch4.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, toggleState_4);
 
-  // If already provisioned, WIFI_STA_CONNECTED fires during beginProvision
-  // so dashboardActive might already be true here
+  // NOTE: Do NOT add "Connecting to WiFi" here manually.
+  // After beginProvision():
+  //   Already provisioned → WIFI_STA_CONNECTED fires → dashboard launches
+  //   Factory reset / fresh → PROV_START fires → BLE instructions shown
+  //   Credentials sent → PROV_CRED_RECV fires → connecting line added
+  // Sab events se handle hoga, yahan kuch extra add karne ki zaroorat nahi.
   if (!dashboardActive) {
-    // Not yet connected — show connecting dots
-    tWifi("Connecting to WiFi ...");
-    termStartDots();
+    tInfo("Waiting for WiFi or provisioning app...");
   }
 
   Serial.println("[SETUP] Complete");
@@ -933,21 +952,86 @@ void setup() {
 //  LOOP — original ka exact structure, sirf display adds kiye
 // ─────────────────────────────────────────────────────────────
 void loop() {
-  // ── Reset button — ALWAYS first, original se same ──────
+  // ── Reset button — live countdown feedback ─────────────
   if (digitalRead(gpio_reset) == LOW) {
     delay(100);
-    int startTime = millis();
-    while (digitalRead(gpio_reset) == LOW) delay(50);
+    unsigned long startTime = millis();
+    int lastShownSec = -1;
+
+    while (digitalRead(gpio_reset) == LOW) {
+      int heldSec = (millis() - startTime) / 1000;
+
+      if (heldSec != lastShownSec) {
+        lastShownSec = heldSec;
+
+        // Build status message
+        char line1[40], line2[40];
+        uint16_t barColor;
+
+        if (heldSec < 3) {
+          snprintf(line1, sizeof(line1), "Reset held: %ds", heldSec);
+          snprintf(line2, sizeof(line2), "Hold 3s=WiFi Reset  10s=Factory");
+          barColor = C_YELLOW;
+        } else if (heldSec < 10) {
+          snprintf(line1, sizeof(line1), "Release NOW for WiFi Reset (%ds/10s)", heldSec);
+          snprintf(line2, sizeof(line2), "Keep holding for Factory Reset...");
+          barColor = C_ORANGE;
+        } else {
+          snprintf(line1, sizeof(line1), "FACTORY RESET — release to confirm");
+          snprintf(line2, sizeof(line2), "All data will be erased!");
+          barColor = C_RED;
+        }
+
+        // Draw overlay box (works on both terminal and dashboard)
+        tft.fillRoundRect(10, 85, 300, 70, 6, 0x1800);
+        tft.drawRoundRect(10, 85, 300, 70, 6, barColor);
+
+        tft.setTextColor(barColor, 0x1800); tft.setTextSize(1);
+        tft.setCursor(20, 95); tft.print(line1);
+        tft.setTextColor(C_GRAY, 0x1800);
+        tft.setCursor(20, 108); tft.print(line2);
+
+        // Progress bar (0-3s yellow, 3-10s orange, 10s red)
+        int maxSec  = 10;
+        int barW    = 270;
+        int filled  = min((int)(heldSec * barW / maxSec), barW);
+        tft.fillRect(20, 122, barW, 10, C_DARKGRAY);
+        tft.drawRect(19, 121, barW+2, 12, barColor);
+        for (int i = 0; i < filled; i++)
+          tft.drawFastVLine(20+i, 122, 10, barColor);
+
+        // Seconds label
+        char secBuf[8]; snprintf(secBuf, sizeof(secBuf), "%ds", heldSec);
+        tft.setTextColor(C_WHITE, 0x1800);
+        tft.setCursor(20, 137); tft.print(secBuf);
+        tft.setCursor(260, 137); tft.print("/ 10s");
+      }
+      delay(50);
+    }
+
     int duration = millis() - startTime;
+
+    // Clear overlay
+    if (dashboardActive) {
+      // Redraw the portion we covered
+      drawTopBar(); drawDateBar(); drawAllCards();
+    } else {
+      termRedraw();
+      termDrawProvBox();
+    }
+
     if (duration > 10000) {
-      Serial.println("[RESET] Factory reset");
-      if (!dashboardActive) tFail("FACTORY RESET triggered...");
+      Serial.println("[RESET] Factory reset triggered");
+      tFail("FACTORY RESET — clearing all data...");
+      delay(500);
       RMakerFactoryReset(2);
     } else if (duration > 3000) {
-      Serial.println("[RESET] WiFi reset");
-      if (!dashboardActive) termAdd("[RST ]", C_ORANGE, "WiFi reset — will re-provision", C_ORANGE);
+      Serial.println("[RESET] WiFi reset triggered");
+      termAdd("[RST ]", C_ORANGE, "WiFi Reset — credentials cleared, re-provisioning...", C_ORANGE);
+      delay(500);
       RMakerWiFiReset(2);
     }
+    // < 3s = ignore, no action
   }
 
   // ── Terminal dots animation (only if not on dashboard) ──

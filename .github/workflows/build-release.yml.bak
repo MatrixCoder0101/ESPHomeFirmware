@@ -100,116 +100,19 @@ jobs:
           .
 
     # ──────────────────────────────────────────────
-    # 8. Organize all flash files into release folder
-    # ──────────────────────────────────────────────
-    - name: Prepare flash package
-      run: |
-        TAG=${{ github.ref_name }}
-        SKETCH=$(basename "$GITHUB_WORKSPACE")
-        mkdir -p flash-package
-
-        echo "--- All build files ---"
-        ls -lh build/
-
-        # Main firmware
-        cp "build/${SKETCH}.ino.bin"            flash-package/firmware.bin
-
-        # Bootloader
-        cp "build/${SKETCH}.ino.bootloader.bin" flash-package/bootloader.bin
-
-        # Partition table
-        cp "build/${SKETCH}.ino.partitions.bin" flash-package/partitions.bin
-
-        # Boot app (needed for OTA partition init)
-        # Located in ESP32 core — find and copy
-        BOOT_APP=$(find $HOME/.arduino15 -name "boot_app0.bin" 2>/dev/null | head -1)
-        if [ -n "$BOOT_APP" ]; then
-          cp "$BOOT_APP" flash-package/boot_app0.bin
-          echo "boot_app0.bin copied from: $BOOT_APP"
-        else
-          echo "WARNING: boot_app0.bin not found"
-        fi
-
-        # Generate flash_args file (esptool flash addresses)
-        cat > flash-package/flash_args.txt << 'ARGS'
-        --chip esp32 --baud 460800 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 40m --flash_size detect
-        0x1000  bootloader.bin
-        0x8000  partitions.bin
-        0xe000  boot_app0.bin
-        0x10000 firmware.bin
-        ARGS
-
-        # Generate single esptool command for convenience
-        cat > flash-package/FLASH_COMMAND.txt << FLASHCMD
-        === ESPHome Dashboard ${TAG} — Flash Instructions ===
-
-        1. Install esptool:
-           pip install esptool
-
-        2. Flash all files (replace COMx with your port):
-           esptool.py --chip esp32 --port COMx --baud 460800 \
-             write_flash \
-             0x1000  bootloader.bin \
-             0x8000  partitions.bin \
-             0xe000  boot_app0.bin  \
-             0x10000 firmware.bin
-
-        3. OTA only (already flashed once):
-           esptool.py --chip esp32 --port COMx --baud 460800 \
-             write_flash 0x10000 firmware.bin
-
-        === Linux/Mac: replace COMx with /dev/ttyUSB0 or /dev/tty.usbserial ===
-        FLASHCMD
-
-        echo "--- Flash package contents ---"
-        ls -lh flash-package/
-
-    # ──────────────────────────────────────────────
-    # 9. List build output (debug)
+    # 8. List build output (debug)
     # ──────────────────────────────────────────────
     - name: List build output
       run: ls -lh build/
 
     # ──────────────────────────────────────────────
-    # 10. Upload complete flash package as artifact
-    #     (Actions tab — 30 din available)
+    # 9. GitHub Release — sab build files upload
     # ──────────────────────────────────────────────
-    - name: Upload flash package artifact
-      uses: actions/upload-artifact@v4.6.2
-      with:
-        name: ESPHome-Dashboard-${{ github.ref_name }}-flash-package
-        path: flash-package/
-        retention-days: 30
-
-    # ──────────────────────────────────────────────
-    # 11. GitHub Release
-    #     OTA ke liye sirf firmware.bin chahiye
-    #     Fresh flash ke liye baaki files bhi
-    # ──────────────────────────────────────────────
-    - name: Create GitHub Release
+    - name: Create Release and Upload Firmware
       uses: softprops/action-gh-release@v2.2.1
       with:
-        name: "ESPHome Dashboard ${{ github.ref_name }}"
+        name: Release ${{ github.ref_name }}
         tag_name: ${{ github.ref_name }}
-        body: |
-          ## ESPHome Smart Dashboard ${{ github.ref_name }}
-
-          ### Fresh Flash (pehli baar)
-          ```
-          esptool.py --chip esp32 --port COMx --baud 460800 write_flash             0x1000  bootloader.bin             0x8000  partitions.bin             0xe000  boot_app0.bin              0x10000 firmware.bin
-          ```
-
-          ### OTA Only (already flashed)
-          Device automatically checks every 5 minutes.
-          Manual OTA:
-          ```
-          esptool.py --chip esp32 --port COMx --baud 460800 write_flash 0x10000 firmware.bin
-          ```
-        files: |
-          flash-package/firmware.bin
-          flash-package/bootloader.bin
-          flash-package/partitions.bin
-          flash-package/boot_app0.bin
-          flash-package/FLASH_COMMAND.txt
+        files: build/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

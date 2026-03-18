@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include <qrcode.h>  // dsilletti/TFT_eSPI_QRcode
+#include "TFT_eSPI_QRcode.h"  // dsilletti/TFT_eSPI_QRcode (local copy)
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>

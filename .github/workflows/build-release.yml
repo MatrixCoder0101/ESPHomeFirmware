@@ -43,27 +43,27 @@ jobs:
         arduino-cli lib install "DHT sensor library"
         arduino-cli lib install "Adafruit Unified Sensor"
 
-    # TFT_eSPI_QRcode is not in Arduino Library Manager
-    # Install manually from GitHub ZIP
-    - name: Install TFT_eSPI_QRcode from GitHub
+    # TFT_eSPI_QRcode — copy src files directly into sketch folder
+    # (avoids arduino-cli library detection issues with ESP32 core qrcode.h conflict)
+    - name: Install TFT_eSPI_QRcode into sketch folder
       run: |
-        LIB_DIR="$HOME/Arduino/libraries"
-        mkdir -p "$LIB_DIR"
-
-        # Download ZIP
+        # Download
         wget --no-check-certificate              "https://github.com/dsilletti/TFT_eSPI_QRcode/archive/refs/heads/master.zip"              -O /tmp/TFT_eSPI_QRcode.zip
 
-        # Extract to libraries folder
-        unzip -o /tmp/TFT_eSPI_QRcode.zip -d "$LIB_DIR"
+        # Extract
+        unzip -o /tmp/TFT_eSPI_QRcode.zip -d /tmp/
 
-        # Rename to exact library name (arduino-cli needs this)
-        mv "$LIB_DIR/TFT_eSPI_QRcode-master" "$LIB_DIR/TFT_eSPI_QRcode"
+        # Copy src files directly into sketch folder
+        # This guarantees no library detection conflict
+        cp /tmp/TFT_eSPI_QRcode-master/src/qrcode.cpp  ./TFT_eSPI_QRcode.cpp
+        cp /tmp/TFT_eSPI_QRcode-master/src/qrcode.h    ./TFT_eSPI_QRcode.h
+        cp /tmp/TFT_eSPI_QRcode-master/src/qrbits.h    ./qrbits.h
+        cp /tmp/TFT_eSPI_QRcode-master/src/qrencode.c  ./qrencode.c
+        cp /tmp/TFT_eSPI_QRcode-master/src/qrencode.h  ./qrencode.h
+        cp /tmp/TFT_eSPI_QRcode-master/src/frame.c     ./frame.c
 
-        # Verify
-        echo "--- Library contents ---"
-        ls -la "$LIB_DIR/TFT_eSPI_QRcode/"
-        echo "--- src contents ---"
-        ls -la "$LIB_DIR/TFT_eSPI_QRcode/src/"
+        echo "--- Sketch folder contents ---"
+        ls -la ./*.h ./*.cpp ./*.c 2>/dev/null || true
 
     # ──────────────────────────────────────────────────────────
     # 5. Replace TFT_eSPI User_Setup.h with repo's own copy
@@ -137,4 +137,4 @@ jobs:
         tag_name: ${{ github.ref_name }}
         files: build/*
       env:
-        GITHUB_TOKEN: ${{ secrets.TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

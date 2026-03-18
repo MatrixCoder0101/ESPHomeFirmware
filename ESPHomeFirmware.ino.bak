@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include <TFT_eSPI_QRcode.h>  // dsilletti/TFT_eSPI_QRcode
+#include <qrcode.h>
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
@@ -180,22 +180,37 @@ void drawQRScreen() {
   tft.setTextColor(C_YELLOW, 0x0C18);
   tft.print("  app to setup WiFi");
 
-  // ── Generate QR using TFT_eSPI_QRcode library ─────────────
+  // ── Generate QR code ───────────────────────────────────
   char qrContent[128];
   buildQRContent(qrContent, sizeof(qrContent));
   Serial.printf("[QR] Content: %s\n", qrContent);
 
-  // White background + border
-  tft.fillRect(7, 42, 162, 162, TFT_WHITE);
-  tft.drawRect(6, 41, 164, 164, C_DARKGRAY);
-  tft.drawRect(5, 40, 166, 166, C_DARKGRAY);
+  // Version 3 QR = up to 77 chars, ECC_LOW
+  QRCode qrcode;
+  uint8_t qrData[qrcode_getBufferSize(3)];
+  qrcode_initText(&qrcode, qrData, 3, ECC_LOW, qrContent);
 
-  // TFT_eSPI_QRcode — draw QR at x=10, y=45, size=150px
-  // Constructor takes TFT_eSPI pointer
-  TFT_eSPI_QRcode qrHelper(&tft);
-  // qrcode(text, x, y, width_px, version)
-  // version 3 = up to 77 chars, scale auto-calculated from width
-  qrHelper.qrcode(qrContent, 10, 45, 150, 3);
+  // ── Draw QR on left side ───────────────────────────────
+  // QR area: x=10..165, y=45..200 → 155x155 px
+  // qrcode.size ≈ 29 modules for version 3
+  // scale = floor(155 / 29) = 5px per module
+  int qrSize  = qrcode.size;
+  int scale   = 5;
+  int qrPxW   = qrSize * scale;
+  int qrStartX = 10 + (155 - qrPxW) / 2;
+  int qrStartY = 45 + (155 - qrPxW) / 2;
+
+  // White background for QR (quiet zone)
+  tft.fillRect(8, 43, 159, 159, TFT_WHITE);
+  tft.drawRect(7, 42, 161, 161, C_DARKGRAY);
+
+  // Draw modules
+  for (int y = 0; y < qrSize; y++) {
+    for (int x = 0; x < qrSize; x++) {
+      uint16_t col = qrcode_getModule(&qrcode, x, y) ? TFT_BLACK : TFT_WHITE;
+      tft.fillRect(qrStartX + x*scale, qrStartY + y*scale, scale, scale, col);
+    }
+  }
 
   // ── Instructions on right side ─────────────────────────
   int rx = 176;  // right panel start x

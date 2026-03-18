@@ -42,7 +42,7 @@ jobs:
         arduino-cli lib install "TFT_eSPI"
         arduino-cli lib install "DHT sensor library"
         arduino-cli lib install "Adafruit Unified Sensor"
-        arduino-cli lib install "qrcode"
+        arduino-cli lib install "QRCode"
 
     # ──────────────────────────────────────────────────────────
     # 5. Replace TFT_eSPI User_Setup.h with repo's own copy

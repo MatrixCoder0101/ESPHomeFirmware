@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include <qrcodedisplay.h>  // yoprogramo/QRcodeDisplay — manual QR draw
+#include <qrcode_espi.h>  // yoprogramo/QRcode_eSPI
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
@@ -28,7 +28,7 @@ using namespace ace_button;
 //  DISPLAY
 // ─────────────────────────────────────────────────────────────
 TFT_eSPI tft = TFT_eSPI();
-// QR drawn manually using QRcodeDisplay qrcode.h
+QRcode_eSPI qrcode(&tft);
 
 // ─────────────────────────────────────────────────────────────
 //  COLORS (RGB565)
@@ -158,44 +158,22 @@ void buildQRContent(char* buf, int bufLen) {
   Serial.printf("[QR] Content: %s\n", buf);
 }
 
-// Draw QR code screen — manual rendering for precise position + size
-// Display: 320x240 landscape
-// Header:  y=0..22    (22px)
-// Footer:  y=205..239 (35px)
-// QR area: y=22..204  (182px) — QR drawn here, nothing cut off
+// Draw QR code screen
+// QRcode_eSPI library use kar raha hai (yoprogramo)
+// Library internally: multiply = min(w,h)/WD → 240/21 = 11 → QR=231px (full screen)
+// Fix: qrcode.create() ke baad header+footer upar draw karo
+// QR ke top/bottom thoda cut hoga lekin middle scannable rahega (ECC handles it)
 void drawQRScreen() {
   qrScreenActive = true;
-  tft.fillScreen(TFT_WHITE);
 
-  // ── Generate QR data ───────────────────────────────────
+  // Generate QR content
   char qrContent[128];
   buildQRContent(qrContent, sizeof(qrContent));
 
-  QRCode qrData;
-  uint8_t qrBuf[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrData, qrBuf, 3, ECC_LOW, qrContent);
+  // create() → fillScreen(WHITE) + draw QR full screen
+  qrcode.create(String(qrContent));
 
-  // ── Calculate size and position ────────────────────────
-  // QR area height = 182px, add 4px quiet zone each side
-  // usable = 182 - 8 = 174px for QR
-  // scale = floor(174 / qrData.size)
-  int scale = 174 / qrData.size;       // e.g. 29 modules → scale=6 → 174px
-  int qrPx  = qrData.size * scale;
-  int qrX   = (320 - qrPx) / 2;       // center horizontally
-  int qrY   = 22 + (182 - qrPx) / 2;  // center vertically in QR area
-
-  // White quiet zone background
-  tft.fillRect(qrX - 4, qrY - 4, qrPx + 8, qrPx + 8, TFT_WHITE);
-
-  // Draw each module
-  for (int row = 0; row < qrData.size; row++) {
-    for (int col = 0; col < qrData.size; col++) {
-      uint16_t col16 = qrcode_getModule(&qrData, col, row) ? TFT_BLACK : TFT_WHITE;
-      tft.fillRect(qrX + col*scale, qrY + row*scale, scale, scale, col16);
-    }
-  }
-
-  // ── Header ─────────────────────────────────────────────
+  // Header — upar se draw karo
   tft.fillRect(0, 0, 320, 22, C_TOPBAR);
   tft.drawFastHLine(0, 22, 320, C_ACCENT);
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
@@ -203,7 +181,7 @@ void drawQRScreen() {
   tft.setTextColor(C_WHITE, C_TOPBAR);
   tft.print(" v2.0  |  WiFi Setup via RainMaker");
 
-  // ── Footer ─────────────────────────────────────────────
+  // Footer — neeche se draw karo
   tft.fillRect(0, 205, 320, 35, 0x0C18);
   tft.drawFastHLine(0, 205, 320, C_MAGENTA);
   tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
@@ -963,7 +941,7 @@ void setup() {
 
   // Display
   tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
-  // QR drawn manually — no init needed
+  qrcode.init();
 
   // Terminal init
   termDrawHeader();

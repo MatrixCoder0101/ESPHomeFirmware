@@ -35,15 +35,18 @@ public:
 
   // x, y = top-left of QR area, w, h = available pixels
   void initArea(int x, int y, int w, int h) {
-    // Parent init() se inherited members set honge
-    // Phir hum override karte hain
-    init();  // sets multiply, offsetsX, offsetsY based on full screen
+    init();  // sets multiply based on full screen
 
-    // Override: recalculate for our specific area
+    // Reverse-engineer moduleCount from init() result
+    // init() does: multiply = min(screenW,screenH) / moduleCount
+    int screenMin = 240;  // min(320,240)
+    int moduleCount = screenMin / multiply;
+
+    // Recalculate for our specific area
     int minDim = (w < h) ? w : h;
-    multiply = minDim / WD;          // WD = module count (21 for version 1)
-    offsetsX = x + (w - WD * multiply) / 2;
-    offsetsY = y + (h - WD * multiply) / 2;
+    multiply = minDim / moduleCount;
+    offsetsX = x + (w - moduleCount * multiply) / 2;
+    offsetsY = y + (h - moduleCount * multiply) / 2;
   }
 };
 

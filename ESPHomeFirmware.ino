@@ -191,7 +191,7 @@ void drawQRScreen() {
 
   // QR area: x=0, y=22, w=320, h=183 (between header and footer)
   // initArea sets multiply + offsets so QR fits perfectly
-  qrcode.initArea(0, 22, 320, 183);
+  qrcode.initArea(0, 22, 320, 193);
 
   // Generate and draw QR — now positioned in our area
   char qrContent[128];
@@ -204,21 +204,21 @@ void drawQRScreen() {
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
   tft.setCursor(8, 7); tft.print("ESPHome");
   tft.setTextColor(C_WHITE, C_TOPBAR);
-  tft.print(" v2.0  |  WiFi Setup via RainMaker");
+  tft.print(" "); tft.print(CURRENT_FIRMWARE_VERSION); tft.print("  |  WiFi Setup via RainMaker");
 
   // Footer
-  tft.fillRect(0, 205, 320, 35, 0x0C18);
-  tft.drawFastHLine(0, 205, 320, C_MAGENTA);
-  tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
-  tft.setCursor(6, 209); tft.print("Device:");
+  tft.fillRect(0, 215, 320, 25, 0x0C18);
+  tft.drawFastHLine(0, 215, 320, C_MAGENTA);
+  tft.setTextColor(C_WHITE, 0x0C18); tft.setTextSize(1);
+  tft.setCursor(6, 218); tft.print("Device:");
   tft.setTextColor(C_GREEN, 0x0C18); tft.print(" "); tft.print(service_name);
-  tft.setTextColor(C_GRAY, 0x0C18);
-  tft.setCursor(6, 221); tft.print("POP:");
+  tft.setTextColor(C_WHITE, 0x0C18);
+  tft.setCursor(6, 229); tft.print("POP:");
   tft.setTextColor(C_YELLOW, 0x0C18); tft.print(" "); tft.print(pop);
   tft.setTextColor(C_MAGENTA, 0x0C18);
-  tft.setCursor(180, 209); tft.print("Waiting for scan...");
+  tft.setCursor(180, 218); tft.print("Waiting for scan...");
   tft.setTextColor(C_DARKGRAY, 0x0C18);
-  tft.setCursor(180, 221); tft.print("ESP RainMaker app");
+  tft.setCursor(180, 229); tft.print("ESP RainMaker app");
 }
 
 // ── Animate "Waiting for scan..." on QR screen ─────────────
@@ -234,9 +234,9 @@ void qrScreenTick() {
     "Waiting for scan.. ",
     "Waiting for scan..."
   };
-  tft.fillRect(198, 206, 122, 12, 0x0C18);
+  tft.fillRect(198, 216, 122, 12, 0x0C18);
   tft.setTextColor(C_MAGENTA, 0x0C18); tft.setTextSize(1);
-  tft.setCursor(200, 208); tft.print(msgs[qrAnimStep % 3]);
+  tft.setCursor(200, 218); tft.print(msgs[qrAnimStep % 3]);
   qrAnimStep++;
 }
 
@@ -684,7 +684,7 @@ void drawTopBar() {
   tft.print(wifiConnected ? wifiIP : "No WiFi");
   tft.setTextColor(C_WHITE, C_TOPBAR); tft.setCursor(220, 7);
   tft.print(currentTime);
-  tft.setTextColor(C_DARKGRAY, C_TOPBAR); tft.setCursor(270, 7);
+  tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setCursor(270, 7);
   tft.print(CURRENT_FIRMWARE_VERSION);
 }
 void drawDateBar() {
@@ -767,19 +767,22 @@ void drawBottomBar() {
   tft.setTextColor(C_GRAY, C_BG); tft.setTextSize(1);
   tft.setCursor(8, 195); tft.print("OTA: ");
   tft.setTextColor(C_GREEN, C_BG); tft.print(otaStatusMsg);
-  tft.setTextColor(C_DARKGRAY, C_BG); tft.setCursor(8, 210);
-  tft.print("FW: " CURRENT_FIRMWARE_VERSION);
+  // FW version — WHITE so it stands out
+  tft.setTextColor(C_WHITE, C_BG); tft.setCursor(8, 210);
+  tft.print("FW: ");
+  tft.setTextColor(C_ACCENT, C_BG); tft.print(CURRENT_FIRMWARE_VERSION);
+  tft.setTextColor(C_WHITE, C_BG);
   tft.setCursor(120, 210); tft.print("RAM: ");
   tft.print(ESP.getFreeHeap()/1024); tft.print(" kB");
   int on = (int)toggleState_1+(int)toggleState_2+(int)toggleState_3+(int)toggleState_4;
-  tft.setCursor(8, 224); tft.setTextColor(C_GRAY, C_BG);
+  tft.setCursor(8, 224); tft.setTextColor(C_WHITE, C_BG);
   tft.print("Active: ");
   tft.setTextColor(on > 0 ? C_GREEN : C_GRAY, C_BG); tft.print(on);
-  tft.setTextColor(C_GRAY, C_BG); tft.print("/4");
+  tft.setTextColor(C_WHITE, C_BG); tft.print("/4");
   unsigned long s = millis()/1000;
   char ub[24]; snprintf(ub, sizeof(ub), "Up:%02lud %02lu:%02lu:%02lu",
     s/86400, (s%86400)/3600, (s%3600)/60, s%60);
-  tft.setTextColor(C_DARKGRAY, C_BG); tft.setCursor(170, 224); tft.print(ub);
+  tft.setTextColor(C_WHITE, C_BG); tft.setCursor(170, 224); tft.print(ub);
 }
 
 void drawDashboard() {

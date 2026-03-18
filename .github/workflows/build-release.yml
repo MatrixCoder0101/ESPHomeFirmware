@@ -43,26 +43,31 @@ jobs:
         arduino-cli lib install "DHT sensor library"
         arduino-cli lib install "Adafruit Unified Sensor"
 
-    # TFT_eSPI_QRcode — copy src files directly into sketch folder
-    # (avoids arduino-cli library detection issues with ESP32 core qrcode.h conflict)
+    # TFT_eSPI_QRcode — copy src files into sketch folder with renamed headers
+    # Rename qrcode.h → TFT_eSPI_QRcode.h to avoid ESP32 core conflict
     - name: Install TFT_eSPI_QRcode into sketch folder
       run: |
-        # Download
+        # Download and extract
         wget --no-check-certificate              "https://github.com/dsilletti/TFT_eSPI_QRcode/archive/refs/heads/master.zip"              -O /tmp/TFT_eSPI_QRcode.zip
-
-        # Extract
         unzip -o /tmp/TFT_eSPI_QRcode.zip -d /tmp/
+        SRC=/tmp/TFT_eSPI_QRcode-master/src
 
-        # Copy src files directly into sketch folder
-        # This guarantees no library detection conflict
-        cp /tmp/TFT_eSPI_QRcode-master/src/qrcode.cpp  ./TFT_eSPI_QRcode.cpp
-        cp /tmp/TFT_eSPI_QRcode-master/src/qrcode.h    ./TFT_eSPI_QRcode.h
-        cp /tmp/TFT_eSPI_QRcode-master/src/qrbits.h    ./qrbits.h
-        cp /tmp/TFT_eSPI_QRcode-master/src/qrencode.c  ./qrencode.c
-        cp /tmp/TFT_eSPI_QRcode-master/src/qrencode.h  ./qrencode.h
-        cp /tmp/TFT_eSPI_QRcode-master/src/frame.c     ./frame.c
+        # Copy supporting files as-is
+        cp "$SRC/qrbits.h"   ./qrbits.h
+        cp "$SRC/qrencode.c" ./qrencode.c
+        cp "$SRC/qrencode.h" ./qrencode.h
+        cp "$SRC/frame.c"    ./frame.c
 
-        echo "--- Sketch folder contents ---"
+        # Copy qrcode.h → TFT_eSPI_QRcode.h (to avoid ESP32 core qrcode.h conflict)
+        cp "$SRC/qrcode.h" ./TFT_eSPI_QRcode.h
+
+        # Copy qrcode.cpp → TFT_eSPI_QRcode.cpp
+        # Patch internal include: "qrcode.h" → "TFT_eSPI_QRcode.h"
+        sed 's|#include "qrcode.h"|#include "TFT_eSPI_QRcode.h"|g'             "$SRC/qrcode.cpp" > ./TFT_eSPI_QRcode.cpp
+
+        echo "--- Verify patch ---"
+        grep "include" ./TFT_eSPI_QRcode.cpp | head -5
+        echo "--- Files ---"
         ls -la ./*.h ./*.cpp ./*.c 2>/dev/null || true
 
     # ──────────────────────────────────────────────────────────
@@ -137,4 +142,4 @@ jobs:
         tag_name: ${{ github.ref_name }}
         files: build/*
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.TOKEN }}

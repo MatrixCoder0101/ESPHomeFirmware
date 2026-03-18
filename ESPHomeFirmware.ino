@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include "qrcode.h"
+#include <qrcode.h>
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>

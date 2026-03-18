@@ -15,6 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
+#include "qrcode.h"
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
@@ -130,11 +131,167 @@ AceButton button3(&config3), button4(&config4);
 String otaStatusMsg = "Checking...";
 
 // ─────────────────────────────────────────────────────────────
-//  DASHBOARD STATE — simple flag, no complex logic
+//  SCREEN STATE
 // ─────────────────────────────────────────────────────────────
-// true  = dashboard visible, all events update dashboard
-// false = terminal visible, events add log lines
+// dashboardActive = true  → dashboard visible
+// qrScreenActive  = true  → QR code screen visible (provisional mode)
+// both false              → terminal visible
 bool dashboardActive = false;
+bool qrScreenActive  = false;
+
+// ─────────────────────────────────────────────────────────────
+//  QR CODE SCREEN
+//  RainMaker BLE provisioning QR — full screen display
+//  User RainMaker app se scan kare → PROV_CRED_RECV fire hoga
+//  Tab wapas terminal pe aayenge
+// ─────────────────────────────────────────────────────────────
+
+// RainMaker BLE QR content format (same as printQR internally)
+// {"ver":"v1","name":"PROV_12345","pop":"1234567","transport":"ble"}
+void buildQRContent(char* buf, int bufLen) {
+  snprintf(buf, bufLen,
+    "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"%s\",\"transport\":\"ble\"}",
+    service_name, pop);
+}
+
+// Draw QR code + instruction screen
+void drawQRScreen() {
+  qrScreenActive = true;
+  tft.fillScreen(TFT_WHITE);
+
+  // ── Header bar ─────────────────────────────────────────
+  tft.fillRect(0, 0, 320, 28, C_TOPBAR);
+  tft.drawFastHLine(0, 28, 320, C_ACCENT);
+  tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
+  tft.setCursor(8, 6);  tft.print("ESPHome");
+  tft.setTextColor(C_WHITE, C_TOPBAR);
+  tft.print(" v2.0  —  WiFi Setup");
+  tft.setTextColor(C_DARKGRAY, C_TOPBAR);
+  tft.setCursor(258, 6); tft.print(CURRENT_FIRMWARE_VERSION);
+
+  // Subtitle
+  tft.setTextColor(C_TOPBAR, C_TOPBAR);
+  tft.fillRect(0, 29, 320, 14, 0x0C18);
+  tft.setTextColor(C_YELLOW, 0x0C18); tft.setTextSize(1);
+  tft.setCursor(6, 33);
+  tft.print("Scan QR with  ");
+  tft.setTextColor(C_GREEN, 0x0C18);
+  tft.print("ESP RainMaker");
+  tft.setTextColor(C_YELLOW, 0x0C18);
+  tft.print("  app to setup WiFi");
+
+  // ── Generate QR code ───────────────────────────────────
+  char qrContent[128];
+  buildQRContent(qrContent, sizeof(qrContent));
+  Serial.printf("[QR] Content: %s\n", qrContent);
+
+  // Version 3 QR = up to 77 chars, ECC_LOW
+  QRCode qrcode;
+  uint8_t qrData[qrcode_getBufferSize(3)];
+  qrcode_initText(&qrcode, qrData, 3, ECC_LOW, qrContent);
+
+  // ── Draw QR on left side ───────────────────────────────
+  // QR area: x=10..165, y=45..200 → 155x155 px
+  // qrcode.size ≈ 29 modules for version 3
+  // scale = floor(155 / 29) = 5px per module
+  int qrSize  = qrcode.size;
+  int scale   = 5;
+  int qrPxW   = qrSize * scale;
+  int qrStartX = 10 + (155 - qrPxW) / 2;
+  int qrStartY = 45 + (155 - qrPxW) / 2;
+
+  // White background for QR (quiet zone)
+  tft.fillRect(8, 43, 159, 159, TFT_WHITE);
+  tft.drawRect(7, 42, 161, 161, C_DARKGRAY);
+
+  // Draw modules
+  for (int y = 0; y < qrSize; y++) {
+    for (int x = 0; x < qrSize; x++) {
+      uint16_t col = qrcode_getModule(&qrcode, x, y) ? TFT_BLACK : TFT_WHITE;
+      tft.fillRect(qrStartX + x*scale, qrStartY + y*scale, scale, scale, col);
+    }
+  }
+
+  // ── Instructions on right side ─────────────────────────
+  int rx = 176;  // right panel start x
+
+  // Step boxes
+  struct Step { const char* num; const char* line1; const char* line2; uint16_t col; };
+  Step steps[] = {
+    {"1", "Open RainMaker",  "app on phone",    C_ACCENT},
+    {"2", "Tap '+' button",  "Add Device",      C_GREEN},
+    {"3", "Scan this QR",    "code",            C_YELLOW},
+    {"4", "Enter your",      "WiFi password",   C_ORANGE},
+  };
+
+  for (int i = 0; i < 4; i++) {
+    int sy = 47 + i * 38;
+    tft.fillRoundRect(rx, sy, 136, 34, 4, 0x0820);
+    tft.drawRoundRect(rx, sy, 136, 34, 4, steps[i].col);
+
+    // Number circle
+    tft.fillCircle(rx+12, sy+17, 9, steps[i].col);
+    tft.setTextColor(TFT_BLACK, steps[i].col);
+    tft.setTextSize(1); tft.setCursor(rx+9, sy+13);
+    tft.print(steps[i].num);
+
+    // Text
+    tft.setTextColor(C_WHITE, 0x0820);
+    tft.setCursor(rx+26, sy+8);  tft.print(steps[i].line1);
+    tft.setTextColor(C_GRAY, 0x0820);
+    tft.setCursor(rx+26, sy+20); tft.print(steps[i].line2);
+  }
+
+  // ── Bottom info bar ────────────────────────────────────
+  tft.fillRect(0, 204, 320, 36, 0x0C18);
+  tft.drawFastHLine(0, 204, 320, C_MAGENTA);
+
+  tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
+  tft.setCursor(6, 208); tft.print("Device:");
+  tft.setTextColor(C_GREEN, 0x0C18); tft.print(" "); tft.print(service_name);
+
+  tft.setTextColor(C_GRAY, 0x0C18);
+  tft.setCursor(6, 220); tft.print("POP:");
+  tft.setTextColor(C_YELLOW, 0x0C18); tft.print(" "); tft.print(pop);
+
+  tft.setTextColor(C_GRAY, 0x0C18);
+  tft.setCursor(6, 232); tft.print("BLE transport");
+
+  // Scanning indicator (right side of bottom bar)
+  tft.setTextColor(C_MAGENTA, 0x0C18);
+  tft.setCursor(200, 208); tft.print("Waiting for scan...");
+  tft.setTextColor(C_DARKGRAY, 0x0C18);
+  tft.setCursor(200, 222); tft.print("ESP RainMaker app");
+}
+
+// ── Animate "Waiting for scan..." on QR screen ─────────────
+unsigned long lastQRAnimMs = 0;
+int qrAnimStep = 0;
+void qrScreenTick() {
+  if (!qrScreenActive) return;
+  if (millis() - lastQRAnimMs < 600) return;
+  lastQRAnimMs = millis();
+
+  const char* msgs[] = {
+    "Waiting for scan.  ",
+    "Waiting for scan.. ",
+    "Waiting for scan..."
+  };
+  tft.fillRect(198, 206, 122, 12, 0x0C18);
+  tft.setTextColor(C_MAGENTA, 0x0C18); tft.setTextSize(1);
+  tft.setCursor(200, 208); tft.print(msgs[qrAnimStep % 3]);
+  qrAnimStep++;
+}
+
+// ── Transition: QR screen → back to terminal ───────────────
+void qrToTerminal() {
+  qrScreenActive = false;
+  // Redraw terminal
+  tft.fillScreen(TFT_BLACK);
+  termDrawHeader();
+  termRedraw();
+  termDrawProvBox();
+}
 
 // ─────────────────────────────────────────────────────────────
 //  TERMINAL SYSTEM
@@ -727,12 +884,9 @@ void sysProvEvent(arduino_event_t* sys_event) {
 
     case ARDUINO_EVENT_PROV_START:
       Serial.printf("[PROV] Started: %s\n", service_name);
-      printQR(service_name, pop, "ble");
-      // Replace last "Waiting..." line with BLE info — no spam
-      termUpdateLast("[BLE ]", C_MAGENTA, "BLE provisioning ready — open RainMaker app", C_MAGENTA);
-      tBLE(("Device: " + String(service_name) + "  POP: " + String(pop)).c_str());
-      tBLE("Scan BLE → select device → enter WiFi credentials");
-      termDrawProvBox();
+      printQR(service_name, pop, "ble");  // Serial monitor ke liye bhi
+      // QR screen show karo — terminal se switch
+      drawQRScreen();
       stopWiFiLedTask();
       xTaskCreate([](void*){
         int s=0; for(;;){
@@ -744,7 +898,10 @@ void sysProvEvent(arduino_event_t* sys_event) {
 
     case ARDUINO_EVENT_PROV_CRED_RECV:
       Serial.println("[PROV] Credentials received");
-      tBLE("WiFi credentials received from app!");
+      // QR screen se terminal pe wapas switch karo
+      if (qrScreenActive) qrToTerminal();
+      // Ab terminal pe status show karo
+      tBLE("WiFi credentials received from RainMaker app!");
       tWifi("Connecting to WiFi ...");
       termStartDots();
       break;
@@ -752,8 +909,12 @@ void sysProvEvent(arduino_event_t* sys_event) {
     case ARDUINO_EVENT_PROV_CRED_FAIL:
       Serial.println("[PROV] Credentials failed");
       termStopDots();
-      tFail("WiFi credentials invalid — try again in app");
-      termDrawProvBox();
+      // Terminal pe error show karo, phir QR screen wapas
+      if (!qrScreenActive) {
+        tFail("WiFi credentials invalid — showing QR again");
+        delay(1500);
+        drawQRScreen();
+      }
       break;
 
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
@@ -942,7 +1103,7 @@ void setup() {
   //   Credentials sent → PROV_CRED_RECV fires → connecting line added
   // Sab events se handle hoga, yahan kuch extra add karne ki zaroorat nahi.
   if (!dashboardActive) {
-    tInfo("Waiting for WiFi or provisioning app...");
+    tInfo("Starting provisioning — QR screen will appear...");
   }
 
   Serial.println("[SETUP] Complete");
@@ -1034,9 +1195,13 @@ void loop() {
     // < 3s = ignore, no action
   }
 
-  // ── Terminal dots animation (only if not on dashboard) ──
+  // ── Screen animations (only before dashboard) ────────────
   if (!dashboardActive) {
-    termTickDots();
+    if (qrScreenActive) {
+      qrScreenTick();        // QR "Waiting..." animation
+    } else {
+      termTickDots();        // Terminal WiFi dots animation
+    }
   }
 
   // ── DHT sensor — original se same ───────────────────────

@@ -44,17 +44,26 @@ jobs:
         arduino-cli lib install "Adafruit Unified Sensor"
 
     # TFT_eSPI_QRcode is not in Arduino Library Manager
-    # Install manually from GitHub
+    # Install manually from GitHub ZIP
     - name: Install TFT_eSPI_QRcode from GitHub
       run: |
         LIB_DIR="$HOME/Arduino/libraries"
         mkdir -p "$LIB_DIR"
-        cd "$LIB_DIR"
-        wget -q https://github.com/dsilletti/TFT_eSPI_QRcode/archive/refs/heads/master.zip              -O TFT_eSPI_QRcode.zip
-        unzip -q TFT_eSPI_QRcode.zip
-        mv TFT_eSPI_QRcode-master TFT_eSPI_QRcode
-        rm TFT_eSPI_QRcode.zip
-        echo "Installed: $(ls $LIB_DIR/TFT_eSPI_QRcode/src/)"
+
+        # Download ZIP
+        wget --no-check-certificate              "https://github.com/dsilletti/TFT_eSPI_QRcode/archive/refs/heads/master.zip"              -O /tmp/TFT_eSPI_QRcode.zip
+
+        # Extract to libraries folder
+        unzip -o /tmp/TFT_eSPI_QRcode.zip -d "$LIB_DIR"
+
+        # Rename to exact library name (arduino-cli needs this)
+        mv "$LIB_DIR/TFT_eSPI_QRcode-master" "$LIB_DIR/TFT_eSPI_QRcode"
+
+        # Verify
+        echo "--- Library contents ---"
+        ls -la "$LIB_DIR/TFT_eSPI_QRcode/"
+        echo "--- src contents ---"
+        ls -la "$LIB_DIR/TFT_eSPI_QRcode/src/"
 
     # ──────────────────────────────────────────────────────────
     # 5. Replace TFT_eSPI User_Setup.h with repo's own copy

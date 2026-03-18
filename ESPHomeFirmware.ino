@@ -158,87 +158,41 @@ void buildQRContent(char* buf, int bufLen) {
 // Draw QR code + instruction screen
 void drawQRScreen() {
   qrScreenActive = true;
-  tft.fillScreen(TFT_WHITE);
 
-  // ── Header bar ─────────────────────────────────────────
-  tft.fillRect(0, 0, 320, 28, C_TOPBAR);
-  tft.drawFastHLine(0, 28, 320, C_ACCENT);
-  tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
-  tft.setCursor(8, 6);  tft.print("ESPHome");
-  tft.setTextColor(C_WHITE, C_TOPBAR);
-  tft.print(" v2.0  —  WiFi Setup");
-  tft.setTextColor(C_DARKGRAY, C_TOPBAR);
-  tft.setCursor(258, 6); tft.print(CURRENT_FIRMWARE_VERSION);
-
-  // Subtitle
-  tft.setTextColor(C_TOPBAR, C_TOPBAR);
-  tft.fillRect(0, 29, 320, 14, 0x0C18);
-  tft.setTextColor(C_YELLOW, 0x0C18); tft.setTextSize(1);
-  tft.setCursor(6, 33);
-  tft.print("Scan QR with  ");
-  tft.setTextColor(C_GREEN, 0x0C18);
-  tft.print("ESP RainMaker");
-  tft.setTextColor(C_YELLOW, 0x0C18);
-  tft.print("  app to setup WiFi");
-
-  // ── Generate QR using TFT_eSPI_QRcode library ─────────────
+  // ── STEP 1: Generate QR first ─────────────────────────
+  // qrcode.create() internally calls fillScreen(WHITE) then draws QR
+  // So we MUST call it first, then draw UI on top
   char qrContent[128];
   buildQRContent(qrContent, sizeof(qrContent));
   Serial.printf("[QR] Content: %s\n", qrContent);
-
-  // Draw QR — qrcode.create() handles everything internally
   qrcode.create(qrContent);
+  // QR is now drawn at top-left of white screen
 
-  // ── Instructions on right side ─────────────────────────
-  int rx = 176;  // right panel start x
+  // ── STEP 2: Draw UI on top of QR screen ───────────────
 
-  // Step boxes
-  struct Step { const char* num; const char* line1; const char* line2; uint16_t col; };
-  Step steps[] = {
-    {"1", "Open RainMaker",  "app on phone",    C_ACCENT},
-    {"2", "Tap '+' button",  "Add Device",      C_GREEN},
-    {"3", "Scan this QR",    "code",            C_YELLOW},
-    {"4", "Enter your",      "WiFi password",   C_ORANGE},
-  };
+  // Header bar (top — over QR)
+  tft.fillRect(0, 0, 320, 20, C_TOPBAR);
+  tft.drawFastHLine(0, 20, 320, C_ACCENT);
+  tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
+  tft.setCursor(8, 6); tft.print("ESPHome");
+  tft.setTextColor(C_WHITE, C_TOPBAR);
+  tft.print(" v2.0  |  WiFi Setup via RainMaker");
 
-  for (int i = 0; i < 4; i++) {
-    int sy = 47 + i * 38;
-    tft.fillRoundRect(rx, sy, 136, 34, 4, 0x0820);
-    tft.drawRoundRect(rx, sy, 136, 34, 4, steps[i].col);
+  // No instructions panel — QR uses full screen width
 
-    // Number circle
-    tft.fillCircle(rx+12, sy+17, 9, steps[i].col);
-    tft.setTextColor(TFT_BLACK, steps[i].col);
-    tft.setTextSize(1); tft.setCursor(rx+9, sy+13);
-    tft.print(steps[i].num);
-
-    // Text
-    tft.setTextColor(C_WHITE, 0x0820);
-    tft.setCursor(rx+26, sy+8);  tft.print(steps[i].line1);
-    tft.setTextColor(C_GRAY, 0x0820);
-    tft.setCursor(rx+26, sy+20); tft.print(steps[i].line2);
-  }
-
-  // ── Bottom info bar ────────────────────────────────────
-  tft.fillRect(0, 204, 320, 36, 0x0C18);
-  tft.drawFastHLine(0, 204, 320, C_MAGENTA);
-
+  // Bottom bar
+  tft.fillRect(0, 205, 320, 35, 0x0C18);
+  tft.drawFastHLine(0, 205, 320, C_MAGENTA);
   tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
-  tft.setCursor(6, 208); tft.print("Device:");
+  tft.setCursor(6, 209); tft.print("Device:");
   tft.setTextColor(C_GREEN, 0x0C18); tft.print(" "); tft.print(service_name);
-
   tft.setTextColor(C_GRAY, 0x0C18);
-  tft.setCursor(6, 220); tft.print("POP:");
+  tft.setCursor(6, 221); tft.print("POP:");
   tft.setTextColor(C_YELLOW, 0x0C18); tft.print(" "); tft.print(pop);
-
-  tft.setTextColor(C_GRAY, 0x0C18);
-  tft.setCursor(6, 232); tft.print("BLE transport");
-
-  // Scanning indicator (right side of bottom bar)
   tft.setTextColor(C_MAGENTA, 0x0C18);
-  tft.setCursor(200, 208); tft.print("Waiting for scan...");
+  tft.setCursor(190, 209); tft.print("Waiting for scan...");
   tft.setTextColor(C_DARKGRAY, 0x0C18);
-  tft.setCursor(200, 222); tft.print("ESP RainMaker app");
+  tft.setCursor(190, 221); tft.print("ESP RainMaker app");
 }
 
 // ── Animate "Waiting for scan..." on QR screen ─────────────
@@ -342,13 +296,14 @@ void termRedraw() {
 // Add line and auto-scroll — NO delay, called from event handler safely
 void termAdd(const char* badge, uint16_t bc, const char* msg, uint16_t mc) {
   if (dashboardActive) return;  // dashboard pe ho toh kuch mat karo
+
+  // Store line always
   if (tCount < TERM_MAX) {
     strncpy(tLines[tCount].badge, badge, 7);
     strncpy(tLines[tCount].msg,   msg,   59);
     tLines[tCount].bc = bc; tLines[tCount].mc = mc;
     tCount++;
   } else {
-    // Buffer full — shift up (oldest line hata do)
     for (int i = 0; i < TERM_MAX - 1; i++) tLines[i] = tLines[i+1];
     strncpy(tLines[TERM_MAX-1].badge, badge, 7);
     strncpy(tLines[TERM_MAX-1].msg,   msg,   59);
@@ -356,7 +311,9 @@ void termAdd(const char* badge, uint16_t bc, const char* msg, uint16_t mc) {
   }
   int vis = termVisLines();
   tScrollTop = (tCount > vis) ? tCount - vis : 0;
-  termRedraw();
+
+  // QR screen active hai toh draw mat karo — QR wipe ho jayega
+  if (!qrScreenActive) termRedraw();
 }
 
 // Update LAST line — disconnect/retry pe reuse karo, spam mat karo
@@ -366,7 +323,8 @@ void termUpdateLast(const char* badge, uint16_t bc, const char* msg, uint16_t mc
   strncpy(tLines[idx].badge, badge, 7);
   strncpy(tLines[idx].msg,   msg,   59);
   tLines[idx].bc = bc; tLines[idx].mc = mc;
-  termRedraw();
+  // QR screen active hai toh draw mat karo
+  if (!qrScreenActive) termRedraw();
 }
 
 // Convenience wrappers
@@ -937,22 +895,35 @@ void sysProvEvent(arduino_event_t* sys_event) {
       }, "led_d", 1024, NULL, 1, &wifiLedTaskHandle);
 
       if (dashboardActive) {
-        // Dashboard pe hain — sirf top bar update, nothing else
+        // Dashboard pe hain — sirf top bar update
         refreshTopBar();
+      } else if (qrScreenActive) {
+        // QR screen dikha raha hai — kuch mat karo, QR wipe mat karo
+        // RainMaker background mein retry karta rahega
+        Serial.println("[WIFI] Disconnected during QR screen — ignoring");
       } else {
-        // Terminal pe hain — RainMaker auto-retry karega
-        // Ek hi line update karo, spam nahi
+        // Terminal pe hain — looping rokne ke liye last line check karo
         termStopDots();
-        tFail("WiFi disconnected — RainMaker retrying...");
-        // Nayi connecting line add karo aur dots start karo
-        tWifi("Connecting to WiFi ...");
-        termStartDots();
+        // Agar last line already disconnect thi toh update karo, naya line mat add karo
+        bool lastIsDisconn = (tCount > 0 &&
+          strstr(tLines[tCount-1].msg, "disconnected") != NULL);
+        if (lastIsDisconn) {
+          termUpdateLast("[WIFI]", C_RED, "WiFi disconnected — retrying...", C_RED);
+        } else {
+          tFail("WiFi disconnected — RainMaker retrying...");
+          tWifi("Connecting to WiFi ...");
+          termStartDots();
+        }
       }
       break;
 
     case ARDUINO_EVENT_PROV_END:
       Serial.println("[PROV] Ended");
-      tBLE("Provisioning session ended");
+      // Sirf log karo — QR screen band mat karo
+      // PROV_CRED_RECV ya WIFI_STA_CONNECTED screen switch karega
+      if (!qrScreenActive) {
+        tBLE("Provisioning session ended");
+      }
       break;
 
     default: break;

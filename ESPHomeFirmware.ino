@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include <TFT_eSPI_QRcode.h>  // dsilletti/TFT_eSPI_QRcode
+#include <qrcode.h>  // dsilletti/TFT_eSPI_QRcode
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
@@ -28,6 +28,7 @@ using namespace ace_button;
 //  DISPLAY
 // ─────────────────────────────────────────────────────────────
 TFT_eSPI tft = TFT_eSPI();
+QRcode qrcode(&tft);
 
 // ─────────────────────────────────────────────────────────────
 //  COLORS (RGB565)
@@ -185,17 +186,8 @@ void drawQRScreen() {
   buildQRContent(qrContent, sizeof(qrContent));
   Serial.printf("[QR] Content: %s\n", qrContent);
 
-  // White background + border
-  tft.fillRect(7, 42, 162, 162, TFT_WHITE);
-  tft.drawRect(6, 41, 164, 164, C_DARKGRAY);
-  tft.drawRect(5, 40, 166, 166, C_DARKGRAY);
-
-  // TFT_eSPI_QRcode — draw QR at x=10, y=45, size=150px
-  // Constructor takes TFT_eSPI pointer
-  TFT_eSPI_QRcode qrHelper(&tft);
-  // qrcode(text, x, y, width_px, version)
-  // version 3 = up to 77 chars, scale auto-calculated from width
-  qrHelper.qrcode(qrContent, 10, 45, 150, 3);
+  // Draw QR — qrcode.create() handles everything internally
+  qrcode.create(qrContent);
 
   // ── Instructions on right side ─────────────────────────
   int rx = 176;  // right panel start x
@@ -977,6 +969,7 @@ void setup() {
 
   // Display
   tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
+  qrcode.init();
 
   // Terminal init
   termDrawHeader();

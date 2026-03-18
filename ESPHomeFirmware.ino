@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include <QRcodeDisplay.h>  // yoprogramo — gives access to QRCode struct for manual draw
+#include <qrcodedisplay.h>  // yoprogramo/QRcodeDisplay — manual QR draw
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>

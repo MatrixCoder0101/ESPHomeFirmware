@@ -28,7 +28,26 @@ using namespace ace_button;
 //  DISPLAY
 // ─────────────────────────────────────────────────────────────
 TFT_eSPI tft = TFT_eSPI();
-QRcode_eSPI qrcode(&tft);
+// Custom subclass — init() override karo taaki QR specific area mein fit ho
+class QRcode_Custom : public QRcode_eSPI {
+public:
+  QRcode_Custom(TFT_eSPI* d) : QRcode_eSPI(d) {}
+
+  // x, y = top-left of QR area, w, h = available pixels
+  void initArea(int x, int y, int w, int h) {
+    // Parent init() se inherited members set honge
+    // Phir hum override karte hain
+    init();  // sets multiply, offsetsX, offsetsY based on full screen
+
+    // Override: recalculate for our specific area
+    int minDim = (w < h) ? w : h;
+    multiply = minDim / WD;          // WD = module count (21 for version 1)
+    offsetsX = x + (w - WD * multiply) / 2;
+    offsetsY = y + (h - WD * multiply) / 2;
+  }
+};
+
+QRcode_Custom qrcode(&tft);
 
 // ─────────────────────────────────────────────────────────────
 //  COLORS (RGB565)
@@ -165,15 +184,18 @@ void buildQRContent(char* buf, int bufLen) {
 // QR ke top/bottom thoda cut hoga lekin middle scannable rahega (ECC handles it)
 void drawQRScreen() {
   qrScreenActive = true;
+  tft.fillScreen(TFT_WHITE);
 
-  // Generate QR content
+  // QR area: x=0, y=22, w=320, h=183 (between header and footer)
+  // initArea sets multiply + offsets so QR fits perfectly
+  qrcode.initArea(0, 22, 320, 183);
+
+  // Generate and draw QR — now positioned in our area
   char qrContent[128];
   buildQRContent(qrContent, sizeof(qrContent));
-
-  // create() → fillScreen(WHITE) + draw QR full screen
   qrcode.create(String(qrContent));
 
-  // Header — upar se draw karo
+  // Header
   tft.fillRect(0, 0, 320, 22, C_TOPBAR);
   tft.drawFastHLine(0, 22, 320, C_ACCENT);
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
@@ -181,7 +203,7 @@ void drawQRScreen() {
   tft.setTextColor(C_WHITE, C_TOPBAR);
   tft.print(" v2.0  |  WiFi Setup via RainMaker");
 
-  // Footer — neeche se draw karo
+  // Footer
   tft.fillRect(0, 205, 320, 35, 0x0C18);
   tft.drawFastHLine(0, 205, 320, C_MAGENTA);
   tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
@@ -941,7 +963,7 @@ void setup() {
 
   // Display
   tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
-  qrcode.init();
+  // qrcode.init() called via initArea() in drawQRScreen
 
   // Terminal init
   termDrawHeader();

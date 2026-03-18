@@ -159,31 +159,26 @@ void buildQRContent(char* buf, int bufLen) {
 }
 
 // Draw QR code + instruction screen
+// Display: 320x240 landscape
+// Header: y=0..21  (22px)
+// Footer: y=205..239 (35px)
+// QR area: y=22..204 = 182px tall, 320px wide
+// QR size: 182px centered → x_offset = (320-182)/2 = 69
 void drawQRScreen() {
   qrScreenActive = true;
 
-  // ── STEP 1: Generate QR first ─────────────────────────
-  // qrcode.create() internally calls fillScreen(WHITE) then draws QR
-  // So we MUST call it first, then draw UI on top
-  char qrContent[128];
-  buildQRContent(qrContent, sizeof(qrContent));
-  Serial.printf("[QR] Content: %s\n", qrContent);
-  qrcode.create(qrContent);
-  // QR is now drawn at top-left of white screen
+  // ── STEP 1: Draw header + footer FIRST ────────────────
+  tft.fillScreen(TFT_WHITE);
 
-  // ── STEP 2: Draw UI on top of QR screen ───────────────
-
-  // Header bar (top — over QR)
-  tft.fillRect(0, 0, 320, 20, C_TOPBAR);
-  tft.drawFastHLine(0, 20, 320, C_ACCENT);
+  // Header
+  tft.fillRect(0, 0, 320, 22, C_TOPBAR);
+  tft.drawFastHLine(0, 22, 320, C_ACCENT);
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
-  tft.setCursor(8, 6); tft.print("ESPHome");
+  tft.setCursor(8, 7); tft.print("ESPHome");
   tft.setTextColor(C_WHITE, C_TOPBAR);
   tft.print(" v2.0  |  WiFi Setup via RainMaker");
 
-  // No instructions panel — QR uses full screen width
-
-  // Bottom bar
+  // Footer
   tft.fillRect(0, 205, 320, 35, 0x0C18);
   tft.drawFastHLine(0, 205, 320, C_MAGENTA);
   tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
@@ -193,9 +188,42 @@ void drawQRScreen() {
   tft.setCursor(6, 221); tft.print("POP:");
   tft.setTextColor(C_YELLOW, 0x0C18); tft.print(" "); tft.print(pop);
   tft.setTextColor(C_MAGENTA, 0x0C18);
-  tft.setCursor(190, 209); tft.print("Waiting for scan...");
+  tft.setCursor(180, 209); tft.print("Waiting for scan...");
   tft.setTextColor(C_DARKGRAY, 0x0C18);
-  tft.setCursor(190, 221); tft.print("ESP RainMaker app");
+  tft.setCursor(180, 221); tft.print("ESP RainMaker app");
+
+  // ── STEP 2: Generate + draw QR in the middle area ─────
+  // QR area height = 205 - 22 = 183px
+  // Center QR: x = (320 - 183) / 2 = 68, y = 22
+  char qrContent[128];
+  buildQRContent(qrContent, sizeof(qrContent));
+
+  // Re-init with position so QR fits between header and footer
+  // qrcode.init(x, y, size_px)
+  qrcode.init(68, 22, 183);
+  qrcode.create(qrContent);
+
+  // qrcode.create() redraws white bg only within its area now
+  // Redraw header + footer on top since create() may wipe them
+  tft.fillRect(0, 0, 320, 22, C_TOPBAR);
+  tft.drawFastHLine(0, 22, 320, C_ACCENT);
+  tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
+  tft.setCursor(8, 7); tft.print("ESPHome");
+  tft.setTextColor(C_WHITE, C_TOPBAR);
+  tft.print(" v2.0  |  WiFi Setup via RainMaker");
+
+  tft.fillRect(0, 205, 320, 35, 0x0C18);
+  tft.drawFastHLine(0, 205, 320, C_MAGENTA);
+  tft.setTextColor(C_GRAY, 0x0C18); tft.setTextSize(1);
+  tft.setCursor(6, 209); tft.print("Device:");
+  tft.setTextColor(C_GREEN, 0x0C18); tft.print(" "); tft.print(service_name);
+  tft.setTextColor(C_GRAY, 0x0C18);
+  tft.setCursor(6, 221); tft.print("POP:");
+  tft.setTextColor(C_YELLOW, 0x0C18); tft.print(" "); tft.print(pop);
+  tft.setTextColor(C_MAGENTA, 0x0C18);
+  tft.setCursor(180, 209); tft.print("Waiting for scan...");
+  tft.setTextColor(C_DARKGRAY, 0x0C18);
+  tft.setCursor(180, 221); tft.print("ESP RainMaker app");
 }
 
 // ── Animate "Waiting for scan..." on QR screen ─────────────
@@ -943,7 +971,7 @@ void setup() {
 
   // Display
   tft.init(); tft.setRotation(1); tft.fillScreen(TFT_BLACK);
-  qrcode.init();
+  qrcode.init();  // default init, position set in drawQRScreen()
 
   // Terminal init
   termDrawHeader();

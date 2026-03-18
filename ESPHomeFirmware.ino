@@ -198,10 +198,8 @@ void drawQRScreen() {
   char qrContent[128];
   buildQRContent(qrContent, sizeof(qrContent));
 
-  // Re-init with position so QR fits between header and footer
-  // qrcode.init(x, y, size_px)
-  qrcode.init(68, 22, 183);
-  qrcode.create(qrContent);
+  // create(text, x, y, size) — position and size here
+  qrcode.create(qrContent, 68, 22, 183);
 
   // qrcode.create() redraws white bg only within its area now
   // Redraw header + footer on top since create() may wipe them

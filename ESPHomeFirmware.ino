@@ -15,7 +15,7 @@
 #include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
-#include "TFT_eSPI_QRcode.h"  // dsilletti/TFT_eSPI_QRcode (local copy)
+#include <qrcode_espi.h>  // yoprogramo/QRcode_eSPI
 #include <HTTPClient.h>
 #include <Update.h>
 #include <ArduinoJson.h>
@@ -28,7 +28,7 @@ using namespace ace_button;
 //  DISPLAY
 // ─────────────────────────────────────────────────────────────
 TFT_eSPI tft = TFT_eSPI();
-QRcode qrcode(&tft);
+QRcode_eSPI qrcode(&tft);
 
 // ─────────────────────────────────────────────────────────────
 //  COLORS (RGB565)
@@ -150,9 +150,12 @@ bool qrScreenActive  = false;
 // RainMaker BLE QR content format (same as printQR internally)
 // {"ver":"v1","name":"PROV_12345","pop":"1234567","transport":"ble"}
 void buildQRContent(char* buf, int bufLen) {
+  // Exact same format as RainMaker's printQR() function
+  // This is what ESP RainMaker app scans to provision
   snprintf(buf, bufLen,
     "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"%s\",\"transport\":\"ble\"}",
     service_name, pop);
+  Serial.printf("[QR] Content: %s\n", buf);
 }
 
 // Draw QR code + instruction screen

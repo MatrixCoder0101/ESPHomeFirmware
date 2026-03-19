@@ -80,7 +80,7 @@ QRcode_Custom qrcode(&tft);
 #define GITHUB_USER              "MatrixCoder0101"
 #define GITHUB_REPO              "ESPHomeFirmware"
 #define EEPROM_VERSION_ADDR      8
-#define DHTPIN                   35
+#define DHTPIN                   17
 #define DHTTYPE                  DHT11
 
 // ─────────────────────────────────────────────────────────────

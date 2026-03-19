@@ -151,7 +151,8 @@ AceButton button1(&config1), button2(&config2);
 AceButton button3(&config3), button4(&config4);
 
 // OTA
-String otaStatusMsg = "Checking...";
+String otaStatusMsg   = "Checking...";
+String displayVersion = CURRENT_FIRMWARE_VERSION;  // EEPROM se load hoga boot pe
 
 // ─────────────────────────────────────────────────────────────
 //  SCREEN STATE
@@ -204,7 +205,7 @@ void drawQRScreen() {
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
   tft.setCursor(8, 7); tft.print("ESPHome");
   tft.setTextColor(C_WHITE, C_TOPBAR);
-  tft.print(" "); tft.print(CURRENT_FIRMWARE_VERSION); tft.print("  |  WiFi Setup via RainMaker");
+  tft.print(" "); tft.print(displayVersion); tft.print("  |  WiFi Setup via RainMaker");
 
   // Footer
   tft.fillRect(0, 215, 320, 25, 0x0C18);
@@ -274,9 +275,9 @@ void termDrawHeader() {
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setTextSize(1);
   tft.setCursor(6, 5); tft.print("ESPHome");
   tft.setTextColor(C_WHITE, C_TOPBAR);
-  tft.print(" v2.0  |  Smart Dashboard");
+  tft.print(" "); tft.print(displayVersion); tft.print("  |  Smart Dashboard");
   tft.setTextColor(C_DARKGRAY, C_TOPBAR);
-  tft.setCursor(262, 5); tft.print(CURRENT_FIRMWARE_VERSION);
+  tft.setCursor(262, 5); tft.print(displayVersion);
 }
 
 void termDrawFooter() {
@@ -477,6 +478,7 @@ void storeFirmwareVersion(const char* v) {
     EEPROM.write(EEPROM_VERSION_ADDR+i, v[i] ? v[i] : '\0');
   }
   EEPROM.commit();
+  displayVersion = String(v);  // Display turant update karo
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -701,7 +703,7 @@ void drawTopBar() {
   tft.setTextColor(C_WHITE, C_TOPBAR); tft.setCursor(220, 7);
   tft.print(currentTime);
   tft.setTextColor(C_ACCENT, C_TOPBAR); tft.setCursor(270, 7);
-  tft.print(CURRENT_FIRMWARE_VERSION);
+  tft.print(displayVersion);
 }
 void drawDateBar() {
   tft.fillRect(0, 23, 320, 14, C_BG);
@@ -786,7 +788,7 @@ void drawBottomBar() {
   // FW version — WHITE so it stands out
   tft.setTextColor(C_WHITE, C_BG); tft.setCursor(8, 210);
   tft.print("FW: ");
-  tft.setTextColor(C_ACCENT, C_BG); tft.print(CURRENT_FIRMWARE_VERSION);
+  tft.setTextColor(C_ACCENT, C_BG); tft.print(displayVersion);
   tft.setTextColor(C_WHITE, C_BG);
   tft.setCursor(120, 210); tft.print("RAM: ");
   tft.print(ESP.getFreeHeap()/1024); tft.print(" kB");
@@ -993,6 +995,14 @@ void setup() {
 
   // EEPROM
   if (ENABLE_EEPROM) EEPROM.begin(EEPROM_SIZE);
+
+  // Installed version EEPROM se load karo
+  // OTA ke baad wahan save hota hai — wahi actual version hai
+  String storedVer = readStoredVersion();
+  if (storedVer.length() > 0 && storedVer.startsWith("v")) {
+    displayVersion = storedVer;
+  }
+
   toggleState_1 = ENABLE_EEPROM ? readEEPROM(0) : LOW;
   toggleState_2 = ENABLE_EEPROM ? readEEPROM(1) : LOW;
   toggleState_3 = ENABLE_EEPROM ? readEEPROM(2) : LOW;

@@ -1043,18 +1043,10 @@ void setup() {
   }
   tInfo("Reset: Hold BOOT 3s=WiFiReset  10s=FactoryReset");
 
-  // DHT
+  // DHT — sirf begin(), setup mein read mat karo
+  // DHT11 ko 2 seconds warm-up chahiye, pehli reading loop mein hogi
   dht.begin();
-  {
-    float h = dht.readHumidity(), t = dht.readTemperature();
-    if (!isnan(t) && !isnan(h)) {
-      char dm[40]; snprintf(dm, sizeof(dm), "DHT11 OK  %.1fC  %.1f%%", t, h);
-      tOK(dm);
-      currentTemp = t; currentHumidity = h;
-    } else {
-      tInfo("DHT11: no data yet — will read in loop");
-    }
-  }
+  tOK("DHT11 started on GPIO 17 — first read in 5s");
 
   // AceButton
   config1.setEventHandler([](AceButton* b, uint8_t e, uint8_t s){

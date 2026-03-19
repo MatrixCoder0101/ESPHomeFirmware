@@ -263,7 +263,6 @@ struct TermLine { char badge[8]; char msg[60]; uint16_t bc; uint16_t mc; };
 TermLine  tLines[TERM_MAX];
 int       tCount     = 0;
 int       tScrollTop = 0;
-bool      doingDots  = false;
 
 // Visible line count
 int termVisLines() { return TERM_AREA_H / TERM_LINE_H; }
@@ -382,6 +381,7 @@ void tSys(const char* m)  { termAdd("[SYS ]", 0x867F,    m, C_WHITE);   }
 // ─────────────────────────────────────────────────────────────
 unsigned long lastDotMs  = 0;
 int           dotState   = 0;
+bool          doingDots  = false;   // true = animate last line
 
 void termStartDots() {
   doingDots  = true;

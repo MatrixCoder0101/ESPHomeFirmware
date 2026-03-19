@@ -319,6 +319,19 @@ void termRedraw() {
   }
 }
 
+// Clear terminal buffer + screen — fresh start
+void termClear() {
+  tCount      = 0;
+  tScrollTop  = 0;
+  dashboardActive = false;
+  qrScreenActive  = false;
+  doingDots       = false;  // stop WiFi dot animation
+  tft.fillScreen(TFT_BLACK);
+  termDrawHeader();
+  tft.fillRect(0, TERM_TOP_Y, 320, TERM_AREA_H, TFT_BLACK);
+  termDrawFooter();
+}
+
 // Add line and auto-scroll — NO delay, called from event handler safely
 void termAdd(const char* badge, uint16_t bc, const char* msg, uint16_t mc) {
   if (dashboardActive) return;  // dashboard pe ho toh kuch mat karo
@@ -603,20 +616,22 @@ bool startOTAUpdate(WiFiClient* client, int contentLength, const String& latestV
 void checkForOTAUpdate() {
   if (WiFi.status() != WL_CONNECTED) {
     otaStatusMsg = "No WiFi";
-    if (dashboardActive) { /* refresh bottom bar */ }
+    if (dashboardActive) refreshBottomBar();
     return;
   }
   otaStatusMsg = "Checking...";
   String latestVer;
   String apiURL = "https://api.github.com/repos/" GITHUB_USER "/" GITHUB_REPO "/releases/latest";
   String binURL = getLatestBinUrl(apiURL.c_str(), latestVer);
-  if (binURL == "") { otaStatusMsg = "No release"; return; }
+  if (binURL == "") { otaStatusMsg = "No release"; if (dashboardActive) refreshBottomBar(); return; }
   String stored = readStoredVersion();
   if (latestVer == CURRENT_FIRMWARE_VERSION || latestVer == stored) {
     otaStatusMsg = "Up to date " + latestVer;
+    if (dashboardActive) refreshBottomBar();
     return;
   }
   otaStatusMsg = "Updating " + latestVer;
+  if (dashboardActive) refreshBottomBar();
   tOTA(("New version: " + latestVer + " — downloading...").c_str());
   HTTPClient http; http.begin(binURL);
   http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
@@ -628,6 +643,7 @@ void checkForOTAUpdate() {
     delay(1500); ESP.restart();
   } else {
     otaStatusMsg = "OTA failed";
+    if (dashboardActive) refreshBottomBar();
   }
   http.end();
 }
@@ -1161,19 +1177,16 @@ void loop() {
 
     if (duration > 10000) {
       // ── FACTORY RESET ─────────────────────────────────
-      // Full terminal screen + countdown
-      dashboardActive = false;
-      qrScreenActive  = false;
-      tft.fillScreen(TFT_BLACK);
-      termDrawHeader();
+      // Clear everything immediately — fresh terminal
+      termClear();
 
-      termAdd("[RST ]", C_RED,    "FACTORY RESET TRIGGERED",                C_RED);
+      termAdd("[RST ]", C_RED,    "FACTORY RESET TRIGGERED",                 C_RED);
       termAdd("[RST ]", C_RED,    "Clearing all WiFi credentials & data...", C_RED);
-      termAdd("[RST ]", C_ORANGE, "RainMaker node data erasing...",          C_ORANGE);
-      termAdd("[RST ]", C_ORANGE, "EEPROM clearing...",                      C_ORANGE);
-      termAdd("[INFO]", C_GRAY,   "Device will reboot in 3 seconds...",      C_GRAY);
+      termAdd("[RST ]", C_RED,    "RainMaker node data erasing...",           C_RED);
+      termAdd("[RST ]", C_ORANGE, "EEPROM clearing...",                       C_ORANGE);
+      termAdd("[INFO]", C_GRAY,   "All settings will be lost!",               C_GRAY);
 
-      // 3 second countdown
+      // Countdown then reboot
       for (int i = 3; i > 0; i--) {
         char cb[32]; snprintf(cb, sizeof(cb), "Rebooting in %d...", i);
         termAdd("[RST ]", C_RED, cb, C_RED);
@@ -1181,16 +1194,14 @@ void loop() {
       }
 
       termAdd("[ OK ]", C_GREEN, "Factory reset complete — rebooting!", C_GREEN);
-      delay(500);
+      delay(800);
       Serial.println("[RESET] Factory reset triggered");
       RMakerFactoryReset(2);
 
     } else if (duration > 3000) {
       // ── WIFI RESET ────────────────────────────────────
-      dashboardActive = false;
-      qrScreenActive  = false;
-      tft.fillScreen(TFT_BLACK);
-      termDrawHeader();
+      // Clear everything immediately — fresh terminal
+      termClear();
 
       termAdd("[RST ]", C_ORANGE, "WiFi RESET TRIGGERED",                    C_ORANGE);
       termAdd("[RST ]", C_ORANGE, "Clearing WiFi credentials from NVS...",   C_ORANGE);
@@ -1198,7 +1209,7 @@ void loop() {
       termAdd("[INFO]", C_GRAY,   "Device will re-enter provisioning mode",   C_GRAY);
       termAdd("[INFO]", C_GRAY,   "Use ESP RainMaker app to provision again", C_GRAY);
 
-      // 3 second countdown
+      // Countdown then reboot
       for (int i = 3; i > 0; i--) {
         char cb[32]; snprintf(cb, sizeof(cb), "Rebooting in %d...", i);
         termAdd("[RST ]", C_ORANGE, cb, C_ORANGE);
@@ -1206,7 +1217,7 @@ void loop() {
       }
 
       termAdd("[ OK ]", C_GREEN, "WiFi reset complete — rebooting!", C_GREEN);
-      delay(500);
+      delay(800);
       Serial.println("[RESET] WiFi reset triggered");
       RMakerWiFiReset(2);
     }

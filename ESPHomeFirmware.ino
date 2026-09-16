@@ -72,7 +72,7 @@ QRcode_Custom qrcode(&tft);
 // ─────────────────────────────────────────────────────────────
 #define ENABLE_EEPROM            true
 #define EEPROM_SIZE              20
-#define CURRENT_FIRMWARE_VERSION "v1.1.0"
+#define CURRENT_FIRMWARE_VERSION "v1.5.6"
 #define GITHUB_USER              "MatrixCoder0101"
 #define GITHUB_REPO              "ESPHomeFirmware"
 #define EEPROM_VERSION_ADDR      8

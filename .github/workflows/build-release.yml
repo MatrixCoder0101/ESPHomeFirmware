@@ -38,7 +38,6 @@ jobs:
     - name: Install required libraries
       run: |
         arduino-cli lib install "ArduinoJson@6.18.3"
-        arduino-cli lib install "AceButton"
         arduino-cli lib install "TFT_eSPI"
         arduino-cli lib install "DHT sensor library"
         arduino-cli lib install "Adafruit Unified Sensor"

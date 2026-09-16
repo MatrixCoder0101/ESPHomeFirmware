@@ -12,7 +12,6 @@
 #include "RMaker.h"
 #include "WiFi.h"
 #include "WiFiProv.h"
-#include <AceButton.h>
 #include <TFT_eSPI.h>
 #include <SPI.h>
 #include <qrcode_espi.h>  // yoprogramo/QRcode_eSPI
@@ -21,8 +20,6 @@
 #include <ArduinoJson.h>
 #include <DHT.h>
 #include <time.h>
-
-using namespace ace_button;
 
 // ─────────────────────────────────────────────────────────────
 //  DISPLAY
@@ -74,14 +71,25 @@ QRcode_Custom qrcode(&tft);
 //  CONFIG
 // ─────────────────────────────────────────────────────────────
 #define ENABLE_EEPROM            true
-#define USE_LATCHED_SWITCH       true
 #define EEPROM_SIZE              20
-#define CURRENT_FIRMWARE_VERSION "v1.0.0"
+#define CURRENT_FIRMWARE_VERSION "v1.1.0"
 #define GITHUB_USER              "MatrixCoder0101"
 #define GITHUB_REPO              "ESPHomeFirmware"
 #define EEPROM_VERSION_ADDR      8
 #define DHTPIN                   17
 #define DHTTYPE                  DHT11
+
+// ─────────────────────────────────────────────────────────────
+//  TOUCH CONFIG — T4-T7 touch plates (wall switches ki jagah)
+//  ESP32 classic me touched pad ki touchRead() value DROP hoti hai
+// ─────────────────────────────────────────────────────────────
+#define TOUCH_DEBUG          1        // 1 = har 1s raw values Serial pe (tuning ke baad 0 karo)
+#define TOUCH_POLL_MS        25       // polling interval (ms)
+#define TOUCH_PRESS_RATIO    0.65f    // pressTh   = idle x 0.65
+#define TOUCH_RELEASE_RATIO  0.80f    // releaseTh = idle x 0.80 (hysteresis)
+#define TOUCH_DB_COUNT       2        // 2 consecutive samples debounce
+#define TOUCH_IDLE_MIN       20       // idle isse kam = pad/wiring problem
+#define TOUCH_STUCK_MS       5000UL   // 5s continuous press = recalibrate
 
 // ─────────────────────────────────────────────────────────────
 //  GPIO
@@ -91,10 +99,10 @@ static uint8_t RelayPin2  = 33;
 static uint8_t RelayPin3  = 25;
 static uint8_t RelayPin4  = 26;
 
-static uint8_t SwitchPin1 = 13;
-static uint8_t SwitchPin2 = 12;
-static uint8_t SwitchPin3 = 14;
-static uint8_t SwitchPin4 = 27;
+static uint8_t TouchPin1  = 13;  // T4
+static uint8_t TouchPin2  = 12;  // T5 — MTDI strapping pin, plate sirf is pin se judi ho
+static uint8_t TouchPin3  = 14;  // T6
+static uint8_t TouchPin4  = 27;  // T7
 
 static uint8_t wifiLed    = 16;  // GPIO 2 = TFT DC, isliye 16
 static uint8_t gpio_reset = 0;   // BOOT button
@@ -145,10 +153,30 @@ static Switch my_switch2(deviceName_2, &RelayPin2);
 static Switch my_switch3(deviceName_3, &RelayPin3);
 static Switch my_switch4(deviceName_4, &RelayPin4);
 
-// AceButton
-ButtonConfig config1, config2, config3, config4;
-AceButton button1(&config1), button2(&config2);
-AceButton button3(&config3), button4(&config4);
+// ─────────────────────────────────────────────────────────────
+//  TOUCH STATE — AceButton ki jagah, tap pe relay toggle
+// ─────────────────────────────────────────────────────────────
+struct TouchCh {
+  uint8_t  pin;
+  uint16_t idle;
+  uint16_t pressTh;
+  uint16_t relTh;
+  bool     pressed;
+  bool     lastRaw;
+  uint8_t  dbCount;
+  bool     enabled;
+  unsigned long pressStart;
+};
+
+TouchCh tch[4];
+unsigned long lastTouchPollMs = 0;
+
+static const uint8_t TOUCH_CH_PIN[4]   = {TouchPin1, TouchPin2, TouchPin3, TouchPin4};
+static const char*   TOUCH_CH_NAME[4]  = {"T4", "T5", "T6", "T7"};
+static const uint8_t TOUCH_CH_RELAY[4] = {RelayPin1, RelayPin2, RelayPin3, RelayPin4};
+static const char*   TOUCH_CH_DEV[4]   = {deviceName_1, deviceName_2, deviceName_3, deviceName_4};
+static Switch*       TOUCH_CH_SW[4]    = {&my_switch1, &my_switch2, &my_switch3, &my_switch4};
+static bool*         TOUCH_CH_STATE[4] = {&toggleState_1, &toggleState_2, &toggleState_3, &toggleState_4};
 
 // OTA
 String otaStatusMsg   = "Checking...";
@@ -377,6 +405,116 @@ void tWifi(const char* m) { termAdd("[WIFI]", C_ACCENT,  m, C_ACCENT);  }
 void tBLE(const char* m)  { termAdd("[BLE ]", C_MAGENTA, m, C_MAGENTA); }
 void tOTA(const char* m)  { termAdd("[OTA ]", C_ORANGE,  m, C_ORANGE);  }
 void tSys(const char* m)  { termAdd("[SYS ]", 0x867F,    m, C_WHITE);   }
+
+// ─────────────────────────────────────────────────────────────
+//  TOUCH SYSTEM — T4-T7 calibration + poll + toggle
+// ─────────────────────────────────────────────────────────────
+void touchRecalibrate(int i) {
+  TouchCh& c = tch[i];
+  Serial.printf("[TOUCH] %s stuck-pressed — recalibrating (GPIO%d)\n", TOUCH_CH_NAME[i], c.pin);
+  long sum = 0;
+  for (int s = 0; s < 8; s++) { sum += touchRead(c.pin); delay(2); }
+  c.idle = (uint16_t)(sum / 8);
+  c.pressStart = 0;
+  if (c.idle < TOUCH_IDLE_MIN) {
+    c.enabled = false;
+    tFail("Touch recal failed — channel disabled");
+    return;
+  }
+  c.pressTh = (uint16_t)(c.idle * TOUCH_PRESS_RATIO);
+  c.relTh   = (uint16_t)(c.idle * TOUCH_RELEASE_RATIO);
+  c.pressed = false; c.lastRaw = false; c.dbCount = 0;
+  char cm[48];
+  snprintf(cm, sizeof(cm), "Touch %s recalibrated  idle=%d  th=%d",
+           TOUCH_CH_NAME[i], c.idle, c.pressTh);
+  tOK(cm);
+}
+
+// Boot pe idle value naapo — usi se thresholds bante hain
+// Plates chhue bina raho warna idle galat naapega!
+void touchCalibrate() {
+  delay(300);  // plates settle hone do
+  for (int i = 0; i < 4; i++) {
+    TouchCh& c = tch[i];
+    c.pin = TOUCH_CH_PIN[i];
+    c.pressed = false; c.lastRaw = false; c.dbCount = 0;
+    c.enabled = true;  c.pressStart = 0;
+    long sum = 0;
+    for (int s = 0; s < 8; s++) { sum += touchRead(c.pin); delay(2); }
+    c.idle = (uint16_t)(sum / 8);
+    if (c.idle < TOUCH_IDLE_MIN) {
+      c.enabled = false;
+      char em[56];
+      snprintf(em, sizeof(em), "Touch %s (GPIO%d) idle=%d — wiring check karo!",
+               TOUCH_CH_NAME[i], c.pin, c.idle);
+      tFail(em);
+      continue;
+    }
+    c.pressTh = (uint16_t)(c.idle * TOUCH_PRESS_RATIO);
+    c.relTh   = (uint16_t)(c.idle * TOUCH_RELEASE_RATIO);
+    char cm[64];
+    snprintf(cm, sizeof(cm), "Touch %s (GPIO%d) calibrated  idle=%d  th=%d",
+             TOUCH_CH_NAME[i], c.pin, c.idle, c.pressTh);
+    tOK(cm);
+  }
+}
+
+// Touch press → relay toggle — write_callback jaisa hi flow
+void handleTouchToggle(int idx) {
+  bool ns = !(*TOUCH_CH_STATE[idx]);
+  *TOUCH_CH_STATE[idx] = ns;
+  setRelay(TOUCH_CH_RELAY[idx], idx, ns);
+  TOUCH_CH_SW[idx]->updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, ns);
+  Serial.printf("[TOUCH] %s (GPIO%d) = %d\n", TOUCH_CH_DEV[idx], TOUCH_CH_RELAY[idx], ns);
+  if (dashboardActive) { refreshCard(idx); refreshBottomBar(); }
+}
+
+void touchPoll() {
+  if (millis() - lastTouchPollMs < TOUCH_POLL_MS) return;
+  lastTouchPollMs = millis();
+
+  uint16_t vals[4];
+  for (int i = 0; i < 4; i++) vals[i] = tch[i].enabled ? touchRead(tch[i].pin) : 0;
+
+#if TOUCH_DEBUG
+  static unsigned long lastDbg = 0;
+  if (millis() - lastDbg >= 1000) {
+    lastDbg = millis();
+    Serial.printf("[TOUCHDBG] T4/G13=%u  T5/G12=%u  T6/G14=%u  T7/G27=%u\n",
+                  vals[0], vals[1], vals[2], vals[3]);
+  }
+#endif
+
+  for (int i = 0; i < 4; i++) {
+    TouchCh& c = tch[i];
+    if (!c.enabled) continue;
+
+    // Hysteresis — press ke liye pressTh se neeche, release ke liye relTh se upar
+    bool raw = c.pressed ? (vals[i] < c.relTh) : (vals[i] < c.pressTh);
+
+    // Debounce — 2 consecutive consistent samples
+    if (raw != c.lastRaw) { c.lastRaw = raw; c.dbCount = 1; }
+    else if (c.dbCount < TOUCH_DB_COUNT) c.dbCount++;
+    if (c.dbCount < TOUCH_DB_COUNT) continue;
+
+    if (raw == c.pressed) {
+      // Stuck-press — calibration drift hua hoga, recalibrate
+      if (raw && c.pressStart != 0 && millis() - c.pressStart > TOUCH_STUCK_MS) {
+        touchRecalibrate(i);
+      }
+      continue;
+    }
+
+    // Edge — press pe toggle
+    c.pressed = raw;
+    if (raw) {
+      c.pressStart = millis();
+      handleTouchToggle(i);
+    } else {
+      c.pressStart = 0;
+    }
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 //  TERMINAL WIFI ANIMATION — loop() calls this
@@ -815,26 +953,6 @@ void refreshSensorBar() { if (dashboardActive) drawSensorBar(); }
 void refreshBottomBar() { if (dashboardActive) drawBottomBar(); }
 
 // ─────────────────────────────────────────────────────────────
-//  BUTTON HANDLER — original se same logic
-// ─────────────────────────────────────────────────────────────
-void buttonHandler(AceButton*, uint8_t eventType, uint8_t,
-                   uint8_t relayPin, int eepromAddr,
-                   Switch& sw, bool& state, int cardIdx) {
-  bool newState = false;
-  if (USE_LATCHED_SWITCH) {
-    newState = (eventType == AceButton::kEventPressed);
-  } else {
-    if (eventType != AceButton::kEventReleased) return;
-    newState = !(digitalRead(relayPin) == LOW);
-  }
-  setRelay(relayPin, eepromAddr, newState);
-  state = newState;
-  sw.updateAndReportParam(ESP_RMAKER_DEF_POWER_NAME, state);
-  Serial.printf("[BTN] Relay GPIO%d = %d\n", relayPin, state);
-  if (dashboardActive) { refreshCard(cardIdx); refreshBottomBar(); }
-}
-
-// ─────────────────────────────────────────────────────────────
 //  WRITE CALLBACK — original se same
 // ─────────────────────────────────────────────────────────────
 void write_callback(Device* device, Param* param,
@@ -1031,16 +1149,10 @@ void setup() {
     tOK(gm);
   }
 
-  // Switch GPIO
-  pinMode(SwitchPin1, INPUT_PULLUP); pinMode(SwitchPin2, INPUT_PULLUP);
-  pinMode(SwitchPin3, INPUT_PULLUP); pinMode(SwitchPin4, INPUT_PULLUP);
+  // Touch plates — touch peripheral pin khud manage karta hai,
+  // INPUT_PULLUP lagaoge to touch readings kharab hongi
   pinMode(gpio_reset, INPUT);
-  {
-    char sm[48];
-    snprintf(sm, sizeof(sm), "Switch GPIO: %d %d %d %d  INPUT_PULLUP",
-             SwitchPin1, SwitchPin2, SwitchPin3, SwitchPin4);
-    tOK(sm);
-  }
+  tOK("Touch plates: GPIO 13/12/14/27 (T4-T7)");
   tInfo("Reset: Hold BOOT 3s=WiFiReset  10s=FactoryReset");
 
   // DHT — sirf begin(), setup mein read mat karo
@@ -1048,18 +1160,8 @@ void setup() {
   dht.begin();
   tOK("DHT11 started on GPIO 17 — first read in 5s");
 
-  // AceButton
-  config1.setEventHandler([](AceButton* b, uint8_t e, uint8_t s){
-    buttonHandler(b,e,s,RelayPin1,0,my_switch1,toggleState_1,0);});
-  config2.setEventHandler([](AceButton* b, uint8_t e, uint8_t s){
-    buttonHandler(b,e,s,RelayPin2,1,my_switch2,toggleState_2,1);});
-  config3.setEventHandler([](AceButton* b, uint8_t e, uint8_t s){
-    buttonHandler(b,e,s,RelayPin3,2,my_switch3,toggleState_3,2);});
-  config4.setEventHandler([](AceButton* b, uint8_t e, uint8_t s){
-    buttonHandler(b,e,s,RelayPin4,3,my_switch4,toggleState_4,3);});
-  button1.init(SwitchPin1); button2.init(SwitchPin2);
-  button3.init(SwitchPin3); button4.init(SwitchPin4);
-  tOK("AceButton handlers registered x4");
+  // Touch calibration — is waqt plates pe ungli na ho!
+  touchCalibrate();
 
   // RainMaker — EXACT same as original
   Node my_node = RMaker.initNode("ESPHome");
@@ -1271,7 +1373,6 @@ void loop() {
     lastOTACheckTime = millis();
   }
 
-  // ── Buttons — original se same ──────────────────────────
-  button1.check(); button2.check();
-  button3.check(); button4.check();
+  // ── Touch plates poll — T4-T7, tap pe toggle ────────────
+  touchPoll();
 }

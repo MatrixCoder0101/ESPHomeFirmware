@@ -1,9 +1,5 @@
-/*
- * ╔══════════════════════════════════════════════════════════╗
- * ║         ESPHome Smart Dashboard v2.0                    ║
- * ║         ILI9341 320x240 TFT  |  ESP32  |  RainMaker    ║
- * ╚══════════════════════════════════════════════════════════╝
- */
+// ESPHome Smart Dashboard v2.0
+// ILI9341 320x240 TFT  |  ESP32  |  RainMaker
 
 // ─────────────────────────────────────────────────────────────
 //  LIBRARIES
@@ -72,7 +68,7 @@ QRcode_Custom qrcode(&tft);
 // ─────────────────────────────────────────────────────────────
 #define ENABLE_EEPROM            true
 #define EEPROM_SIZE              20
-#define CURRENT_FIRMWARE_VERSION "v1.5.6"
+#define CURRENT_FIRMWARE_VERSION "v1.5.7"
 #define GITHUB_USER              "MatrixCoder0101"
 #define GITHUB_REPO              "ESPHomeFirmware"
 #define EEPROM_VERSION_ADDR      8
